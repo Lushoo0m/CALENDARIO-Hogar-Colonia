@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calendario de Limpieza · Hogar Colonia</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <h1>Calendario de Limpieza — Hogar Colonia</h1>
+      <nav class="tabs" id="tabs">
+        <button class="tab-btn active" data-tab="generar">Generar</button>
+        <button class="tab-btn" data-tab="estudiantes">Estudiantes</button>
+        <button class="tab-btn" data-tab="semanas">Semanas guardadas</button>
+      </nav>
+    </header>
+
+    <main class="app-main">
+      <section id="tab-generar" class="tab-panel active"></section>
+      <section id="tab-estudiantes" class="tab-panel"></section>
+      <section id="tab-semanas" class="tab-panel"></section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="core.js"></script>
+  <script src="ui.js"></script>
+</body>
+</html>
