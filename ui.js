@@ -15,6 +15,8 @@
   let state = null;
   let usingServer = true;
   let editingStudentId = null;
+  let editingWeekStart = null;
+  let editingWeekDraft = null;
 
   function defaultState() {
     return {
@@ -307,33 +309,37 @@
     const sortedStudents = [...state.students].sort((a, b) => a.name.localeCompare(b.name, 'es'));
     const maxPoints = Math.max(1, ...state.students.map((s) => Core.totalPointsForStudent(sortedAssignments, s.id)));
 
+    const dayOptions = Core.DOW_NAMES_ES.map((d, i) => `<option value="${i + 1}">${d}</option>`).join('');
+
     const rows = sortedStudents.map((s) => {
       const points = Core.totalPointsForStudent(sortedAssignments, s.id);
       const pct = Math.round((points / maxPoints) * 100);
       const editing = editingStudentId === s.id;
       const kitchenLabel = s.kitchenGroup === 'k2' ? 'Cocina 2' : 'Cocina';
-      const nameHtml = editing
-        ? `<input type="text" id="edit-name-input" value="${escapeHtml(s.name)}">`
-        : `<span class="student-name">${escapeHtml(s.name)}</span>`;
+      const mainHtml = editing ? `
+          <input type="text" id="edit-name-input" value="${escapeHtml(s.name)}">
+          <div class="form-row" style="margin-top:8px;">
+            <div class="form-field"><label>Día fijo</label><select id="edit-day-input">${Core.DOW_NAMES_ES.map((d, i) => `<option value="${i + 1}" ${i + 1 === s.fixedDay ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
+            <div class="form-field"><label>Grupo de cocina</label><select id="edit-kitchen-input"><option value="k1" ${s.kitchenGroup === 'k1' ? 'selected' : ''}>Cocina</option><option value="k2" ${s.kitchenGroup === 'k2' ? 'selected' : ''}>Cocina 2</option></select></div>
+          </div>
+        ` : `
+          <span class="student-name">${escapeHtml(s.name)}</span>
+          <div class="student-meta">${Core.DOW_NAMES_ES[s.fixedDay - 1]} · Grupo: ${kitchenLabel} · ${s.active ? 'Activo' : 'Inactivo'} · ${points} pts acumulados</div>
+          <div class="load-bar-track"><div class="load-bar-fill" style="width:${pct}%"></div></div>
+        `;
       const actions = editing ? `
           <button class="btn small" data-action="save-rename" data-id="${s.id}">Guardar</button>
           <button class="btn small secondary" data-action="cancel-rename" data-id="${s.id}">Cancelar</button>
         ` : `
-          <button class="btn small secondary" data-action="rename" data-id="${s.id}">Renombrar</button>
+          <button class="btn small secondary" data-action="rename" data-id="${s.id}">Editar</button>
           <button class="btn small secondary" data-action="toggle-active" data-id="${s.id}">${s.active ? 'Desactivar' : 'Activar'}</button>
           <button class="btn small danger" data-action="delete" data-id="${s.id}">Eliminar</button>
         `;
       return `<div class="student-row ${s.active ? '' : 'inactive'}" data-id="${s.id}">
-        <div class="student-main">
-          ${nameHtml}
-          <div class="student-meta">${Core.DOW_NAMES_ES[s.fixedDay - 1]} · Grupo: ${kitchenLabel} · ${s.active ? 'Activo' : 'Inactivo'} · ${points} pts acumulados</div>
-          <div class="load-bar-track"><div class="load-bar-fill" style="width:${pct}%"></div></div>
-        </div>
+        <div class="student-main">${mainHtml}</div>
         <div class="student-actions">${actions}</div>
       </div>`;
     }).join('');
-
-    const dayOptions = Core.DOW_NAMES_ES.map((d, i) => `<option value="${i + 1}">${d}</option>`).join('');
 
     el.innerHTML = `
       <div class="card">
@@ -375,15 +381,22 @@
   function handleRenameStart(id) { editingStudentId = id; renderEstudiantes(); }
   function handleRenameCancel() { editingStudentId = null; renderEstudiantes(); }
   function handleRenameSave(id) {
-    const input = document.getElementById('edit-name-input');
-    const name = input.value.trim();
+    const nameInput = document.getElementById('edit-name-input');
+    const dayInput = document.getElementById('edit-day-input');
+    const kitchenInput = document.getElementById('edit-kitchen-input');
+    const name = nameInput.value.trim();
     if (!name) { showToast('El nombre no puede quedar vacío.'); return; }
     const student = state.students.find((s) => s.id === id);
-    if (student) student.name = name;
+    if (student) {
+      student.name = name;
+      student.fixedDay = Number(dayInput.value);
+      student.kitchenGroup = kitchenInput.value;
+    }
     editingStudentId = null;
     saveState();
     renderEstudiantes();
     renderGenerar();
+    showToast('Estudiante actualizado.');
   }
   function handleToggleActive(id) {
     const student = state.students.find((s) => s.id === id);
@@ -442,13 +455,29 @@
     }
 
     const weeksDesc = [...state.lockedWeeks].sort((a, b) => (a.startDate < b.startDate ? 1 : -1));
+    const studentsById = Object.fromEntries(state.students.map((s) => [s.id, s]));
     const weekCards = weeksDesc.map((w) => {
       const label = `Semana ${w.weekIndex} de ${Core.MONTH_NAMES_ES[w.month - 1]} ${w.year}`;
       const dates = `${Core.formatDateEs(Core.fromISO(w.startDate))} – ${Core.formatDateEs(Core.fromISO(w.endDate))}`;
+      if (editingWeekStart === w.startDate) {
+        const historyExcludingThis = state.lockedWeeks.filter((x) => x.startDate !== w.startDate);
+        const audit = Core.auditWeek(state.students, historyExcludingThis, editingWeekDraft);
+        return `<div class="week-card card">
+          <div class="week-card-head"><h3>Editando: ${escapeHtml(label)}</h3><span class="muted">${dates}</span></div>
+          <div class="alert warning">Estás editando una semana ya bloqueada — es una excepción manual explícita. Se guarda apenas confirmes.</div>
+          <div class="audit-list">${renderAudit(audit)}</div>
+          ${renderEditableDays(editingWeekDraft, studentsById)}
+          <div class="btn-row">
+            <button class="btn" data-action="save-edit-week">Guardar cambios</button>
+            <button class="btn secondary" data-action="cancel-edit-week">Cancelar</button>
+          </div>
+        </div>`;
+      }
       return `<div class="week-card card">
         <div class="week-card-head">
           <h3>${escapeHtml(label)}</h3>
           <span class="muted">${dates}</span>
+          <button class="btn small secondary" data-action="edit-week" data-start="${w.startDate}">Editar</button>
           <button class="btn small secondary" data-action="print-week" data-start="${w.startDate}">PDF</button>
         </div>
         ${renderWeekGridTable(w)}
@@ -456,6 +485,36 @@
     }).join('');
 
     el.innerHTML = equityHtml + weekCards;
+  }
+
+  function handleEditWeekStart(startDate) {
+    const week = state.lockedWeeks.find((w) => w.startDate === startDate);
+    if (!week) return;
+    if (!confirm('Vas a editar una semana ya bloqueada. Es una excepción manual explícita: los cambios se guardan de inmediato y afectan la equidad acumulada y las próximas semanas que generes a partir de ahora. ¿Continuar?')) return;
+    editingWeekStart = startDate;
+    editingWeekDraft = JSON.parse(JSON.stringify(week));
+    renderSemanas();
+  }
+  function handleEditWeekCancel() {
+    editingWeekStart = null;
+    editingWeekDraft = null;
+    renderSemanas();
+  }
+  function handleEditWeekSetArea(date, studentId, area) {
+    const day = editingWeekDraft.days.find((d) => d.date === date);
+    const a = day && day.assignments.find((x) => x.studentId === studentId);
+    if (a) a.area = area;
+    renderSemanas();
+  }
+  function handleEditWeekSave() {
+    const idx = state.lockedWeeks.findIndex((w) => w.startDate === editingWeekStart);
+    if (idx === -1) return;
+    state.lockedWeeks[idx] = editingWeekDraft;
+    editingWeekStart = null;
+    editingWeekDraft = null;
+    saveState();
+    renderAll();
+    showToast('Semana bloqueada actualizada.');
   }
 
   // -----------------------------------------------------------------
@@ -537,9 +596,18 @@
   function initSemanasEvents() {
     const el = document.getElementById('tab-semanas');
     el.addEventListener('click', (e) => {
-      const btn = e.target.closest('button[data-action="print-week"]');
+      const btn = e.target.closest('button[data-action]');
       if (!btn) return;
-      handlePrintWeek(btn.dataset.start);
+      const action = btn.dataset.action;
+      if (action === 'print-week') handlePrintWeek(btn.dataset.start);
+      else if (action === 'edit-week') handleEditWeekStart(btn.dataset.start);
+      else if (action === 'save-edit-week') handleEditWeekSave();
+      else if (action === 'cancel-edit-week') handleEditWeekCancel();
+    });
+    el.addEventListener('change', (e) => {
+      if (e.target.matches('select[data-action="set-area"]')) {
+        handleEditWeekSetArea(e.target.dataset.date, e.target.dataset.student, e.target.value);
+      }
     });
   }
 

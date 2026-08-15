@@ -23,15 +23,20 @@
   ];
 
   // Orden fijo de columnas/áreas, tal como debe aparecer siempre en la UI.
-  // maxWeekly = techo estricto semanal (null = sin techo, absorbe lo que sobre).
+  //  - maxWeekly = techo estricto semanal (null = sin techo, absorbe lo que sobre).
+  //  - noGapDays = nunca puede quedar 2 días calendario seguidos sin que
+  //    alguien la limpie (Cocina y Comedor: son las de uso diario real).
+  //  - rotationPriority = antes de repetir a alguien acá, tienen que haber
+  //    pasado TODOS los estudiantes activos por esta área al menos una vez
+  //    (rotación: Escaleras y Lavadero, tareas parejas para repartir en el año).
   const AREAS = [
-    { id: 'kitchen1', label: 'Cocina', points: 7, minWeekly: 4, maxWeekly: null },
-    { id: 'kitchen2', label: 'Cocina 2', points: 5, minWeekly: 3, maxWeekly: 3 },
-    { id: 'dining', label: 'Comedor', points: 7, minWeekly: 4, maxWeekly: null },
-    { id: 'studyRoom', label: 'Sala Estudios', points: 5, minWeekly: 2, maxWeekly: 2 },
-    { id: 'studyBathroom', label: 'Baño Estudios', points: 5, minWeekly: 2, maxWeekly: 2 },
-    { id: 'laundry', label: 'Lavadero', points: 3, minWeekly: 1, maxWeekly: 1 },
-    { id: 'stairs', label: 'Escaleras', points: 3, minWeekly: 1, maxWeekly: 1 },
+    { id: 'kitchen1', label: 'Cocina', points: 7, minWeekly: 4, maxWeekly: null, noGapDays: true },
+    { id: 'kitchen2', label: 'Cocina 2', points: 5, minWeekly: 2, maxWeekly: 3 },
+    { id: 'dining', label: 'Comedor', points: 7, minWeekly: 4, maxWeekly: null, noGapDays: true },
+    { id: 'studyRoom', label: 'Sala Estudios', points: 5, minWeekly: 2, maxWeekly: 3 },
+    { id: 'studyBathroom', label: 'Baño Estudios', points: 5, minWeekly: 2, maxWeekly: 3 },
+    { id: 'laundry', label: 'Lavadero', points: 3, minWeekly: 1, maxWeekly: 1, rotationPriority: true },
+    { id: 'stairs', label: 'Escaleras', points: 3, minWeekly: 1, maxWeekly: 1, rotationPriority: true },
   ];
   const AREA_BY_ID = Object.fromEntries(AREAS.map((a) => [a.id, a]));
   function areaLabel(id) { return AREA_BY_ID[id] ? AREA_BY_ID[id].label : id; }
@@ -46,7 +51,7 @@
 
     { id: 'joaquin', name: 'Joaquín', fixedDay: 2, kitchenGroup: 'k1', active: true },
     { id: 'florencia', name: 'Florencia', fixedDay: 2, kitchenGroup: 'k1', active: true },
-    { id: 'angel', name: 'Ángel', fixedDay: 2, kitchenGroup: 'k2', active: true },
+    { id: 'gaston', name: 'Gastón', fixedDay: 2, kitchenGroup: 'k2', active: true },
 
     { id: 'fernanda', name: 'Fernanda', fixedDay: 3, kitchenGroup: 'k1', active: true },
     { id: 'lautaro', name: 'Lautaro', fixedDay: 3, kitchenGroup: 'k2', active: true },
@@ -273,6 +278,10 @@
       const overBy = Math.max(0, (ctx.weekCounts[area.id] || 0) + 1 - (ctx.quota[area.id] || 0));
       cost += overBy * 700; // techo semanal: muy penalizado si igual hay que excederlo (último recurso)
       if (area.id === 'dining' && student.kitchenGroup === 'k2') cost -= 300; // Comedor es su ÚNICO respaldo sin techo (no pueden limpiar Cocina): dárselo a ellos libera Cocina para el resto
+      if (area.rotationPriority) {
+        const timesDoneEver = countsForStudent(ctx.sortedAssignments, student.id)[area.id];
+        cost += timesDoneEver * 400; // rotación: nadie repite acá hasta que todos los activos hayan pasado al menos una vez
+      }
       const lastDone = lastDoneDate(ctx.sortedAssignments, student.id, area.id, dateISO);
       if (lastDone) {
         const daysSince = (fromISO(dateISO) - fromISO(lastDone)) / 86400000;
@@ -345,7 +354,58 @@
     }
 
     const studentById = Object.fromEntries(tasks.map((t) => [t.student.id, t.student]));
-    return repairCapOverruns(results, studentById, ctx.sortedAssignments);
+    const orderedDates = [...byDate.keys()].sort();
+    const afterCaps = repairCapOverruns(results, studentById, ctx.sortedAssignments);
+    return repairGapViolations(afterCaps, studentById, ctx.sortedAssignments, orderedDates);
+  }
+
+  /**
+   * Tercera pasada: para las áreas "noGapDays" (Cocina y Comedor) no puede
+   * haber dos días calendario seguidos sin nadie asignado. Recorre pares de
+   * días consecutivos de la semana y, si ambos quedaron sin esa área, intenta
+   * mover a un estudiante elegible de alguno de los dos días hacia ahí —
+   * prefiriendo a quien hoy está en un área SIN esta restricción, para no
+   * generar un hueco nuevo al tapar el viejo. Si no encuentra a quién mover,
+   * el hueco queda y auditWeek lo reporta como conflicto.
+   */
+  function repairGapViolations(results, studentById, sortedAssignments, orderedDates) {
+    const gapAreas = AREAS.filter((a) => a.noGapDays);
+    if (!gapAreas.length) return results;
+    const usedByDate = {};
+    results.forEach((r) => {
+      usedByDate[r.date] = usedByDate[r.date] || new Set();
+      usedByDate[r.date].add(r.area);
+    });
+
+    for (const area of gapAreas) {
+      for (let i = 0; i < orderedDates.length - 1; i++) {
+        const d1 = orderedDates[i];
+        const d2 = orderedDates[i + 1];
+        const missing1 = !usedByDate[d1] || !usedByDate[d1].has(area.id);
+        const missing2 = !usedByDate[d2] || !usedByDate[d2].has(area.id);
+        if (!missing1 || !missing2) continue;
+
+        let fixed = false;
+        for (const day of [d1, d2]) {
+          const candidates = results
+            .filter((r) => r.date === day)
+            .sort((a, b) => (AREA_BY_ID[a.area].noGapDays ? 1 : 0) - (AREA_BY_ID[b.area].noGapDays ? 1 : 0));
+          for (const r of candidates) {
+            const student = studentById[r.studentId];
+            if (!student) continue;
+            if (!eligibleAreas(student).some((a) => a.id === area.id)) continue;
+            if (lastAreaForStudent(sortedAssignments, student.id, day) === area.id) continue;
+            usedByDate[day].delete(r.area);
+            usedByDate[day].add(area.id);
+            r.area = area.id;
+            fixed = true;
+            break;
+          }
+          if (fixed) break;
+        }
+      }
+    }
+    return results;
   }
 
   /**
@@ -490,6 +550,30 @@
       Object.entries(seen).forEach(([area, count]) => {
         if (count > 1) {
           warnings.push({ type: 'sameDayConflict', severity: 'error', date: day.date, area, message: `Dos o más estudiantes coinciden en "${areaLabel(area)}" el ${day.date}.` });
+        }
+      });
+    }
+
+    const gapAreas = AREAS.filter((a) => a.noGapDays);
+    if (gapAreas.length) {
+      const usedByDate = {};
+      weekProposal.days.forEach((day) => {
+        usedByDate[day.date] = new Set(day.assignments.map((a) => a.area));
+      });
+      const orderedDates = weekProposal.days.map((d) => d.date);
+      gapAreas.forEach((area) => {
+        for (let i = 0; i < orderedDates.length - 1; i++) {
+          const d1 = orderedDates[i];
+          const d2 = orderedDates[i + 1];
+          if (!usedByDate[d1].has(area.id) && !usedByDate[d2].has(area.id)) {
+            warnings.push({
+              type: 'gap',
+              severity: 'error',
+              area: area.id,
+              date: d2,
+              message: `"${area.label}" quedaría sin limpiar dos días seguidos (${d1} y ${d2}). Revisar manualmente.`,
+            });
+          }
         }
       });
     }
