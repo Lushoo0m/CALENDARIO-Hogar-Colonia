@@ -10,6 +10,7 @@
   <div id="app">
     <header class="app-header">
       <h1>Calendario de Limpieza — Hogar Colonia</h1>
+      <span id="conn-status" class="conn-status">Conectando…</span>
       <nav class="tabs" id="tabs">
         <button class="tab-btn active" data-tab="generar">Generar</button>
         <button class="tab-btn" data-tab="estudiantes">Estudiantes</button>
@@ -18,13 +19,14 @@
     </header>
 
     <main class="app-main">
-      <section id="tab-generar" class="tab-panel active"></section>
+      <section id="tab-generar" class="tab-panel active"><p class="muted">Cargando…</p></section>
       <section id="tab-estudiantes" class="tab-panel"></section>
       <section id="tab-semanas" class="tab-panel"></section>
     </main>
   </div>
 
   <div id="toast" class="toast" hidden></div>
+  <div id="print-area"></div>
 
   <script src="core.js"></script>
   <script src="ui.js"></script>

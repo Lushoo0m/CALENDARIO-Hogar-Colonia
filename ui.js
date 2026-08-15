@@ -1,12 +1,19 @@
 /*
  * ui.js — renderizado y wiring de la interfaz (usa window.Core para toda la
- * lógica de dominio). Persistencia en localStorage.
+ * lógica de dominio).
+ *
+ * Persistencia: si la app se sirve desde server.js (node server.js), el
+ * estado se guarda en /api/state — un único data.json en el servidor que
+ * TODOS los que abren el link comparten (no una copia por navegador). Si no
+ * hay servidor disponible (por ejemplo, se abrió index.html directo con
+ * doble clic), cae automáticamente a localStorage como modo standalone.
  */
 (function () {
   'use strict';
   const STORAGE_KEY = 'hogar-colonia-calendario-v1';
 
-  let state = loadState();
+  let state = null;
+  let usingServer = true;
   let editingStudentId = null;
 
   function defaultState() {
@@ -18,25 +25,76 @@
     };
   }
 
-  function loadState() {
+  function normalizeState(parsed) {
+    return {
+      students: Array.isArray(parsed.students) ? parsed.students : defaultState().students,
+      lockedWeeks: Array.isArray(parsed.lockedWeeks) ? parsed.lockedWeeks : [],
+      pendingProposal: parsed.pendingProposal || null,
+      settings: parsed.settings || {},
+    };
+  }
+
+  function loadStateFromLocalStorage() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return defaultState();
-      const parsed = JSON.parse(raw);
-      return {
-        students: Array.isArray(parsed.students) ? parsed.students : defaultState().students,
-        lockedWeeks: Array.isArray(parsed.lockedWeeks) ? parsed.lockedWeeks : [],
-        pendingProposal: parsed.pendingProposal || null,
-        settings: parsed.settings || {},
-      };
+      return raw ? normalizeState(JSON.parse(raw)) : null;
     } catch (e) {
-      console.error('No se pudo leer el estado guardado, se usa el estado inicial.', e);
-      return defaultState();
+      console.error('No se pudo leer el respaldo local.', e);
+      return null;
     }
   }
 
+  // undefined = no hay servidor disponible (modo standalone); null = hay
+  // servidor pero todavía no guardó nada; objeto = estado real del servidor.
+  async function loadStateFromServer() {
+    try {
+      const res = await fetch('/api/state', { cache: 'no-store' });
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      const data = await res.json();
+      return data ? normalizeState(data) : null;
+    } catch (e) {
+      return undefined;
+    }
+  }
+
+  async function initState() {
+    const fromServer = await loadStateFromServer();
+    if (fromServer === undefined) {
+      usingServer = false;
+      state = loadStateFromLocalStorage() || defaultState();
+    } else {
+      usingServer = true;
+      state = fromServer || defaultState();
+    }
+    updateConnStatus();
+  }
+
   function saveState() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (usingServer) {
+      fetch('/api/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(state),
+      }).catch((e) => {
+        console.error('No se pudo guardar en el servidor; se guarda localmente como respaldo.', e);
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e2) { /* noop */ }
+        showToast('No se pudo guardar en el servidor. Revisá que server.js siga corriendo.');
+      });
+    } else {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { console.error(e); }
+    }
+  }
+
+  function updateConnStatus() {
+    const el = document.getElementById('conn-status');
+    if (!el) return;
+    if (usingServer) {
+      el.textContent = 'Compartido (servidor local)';
+      el.className = 'conn-status online';
+    } else {
+      el.textContent = 'Solo este navegador (sin servidor)';
+      el.className = 'conn-status offline';
+    }
   }
 
   function escapeHtml(str) {
@@ -388,12 +446,40 @@
       const label = `Semana ${w.weekIndex} de ${Core.MONTH_NAMES_ES[w.month - 1]} ${w.year}`;
       const dates = `${Core.formatDateEs(Core.fromISO(w.startDate))} – ${Core.formatDateEs(Core.fromISO(w.endDate))}`;
       return `<div class="week-card card">
-        <div class="week-card-head"><h3>${escapeHtml(label)}</h3><span class="muted">${dates}</span></div>
+        <div class="week-card-head">
+          <h3>${escapeHtml(label)}</h3>
+          <span class="muted">${dates}</span>
+          <button class="btn small secondary" data-action="print-week" data-start="${w.startDate}">PDF</button>
+        </div>
         ${renderWeekGridTable(w)}
       </div>`;
     }).join('');
 
     el.innerHTML = equityHtml + weekCards;
+  }
+
+  // -----------------------------------------------------------------
+  // Exportar a PDF (impresión del navegador, sin dependencias): arma una
+  // vista limpia en #print-area y dispara window.print(); el usuario elige
+  // "Guardar como PDF" en el diálogo de impresión.
+  // -----------------------------------------------------------------
+  function renderPrintableWeek(w) {
+    const label = `Semana ${w.weekIndex} de ${Core.MONTH_NAMES_ES[w.month - 1]} ${w.year}`;
+    const dates = `${Core.formatDateEs(Core.fromISO(w.startDate))} – ${Core.formatDateEs(Core.fromISO(w.endDate))}`;
+    return `
+      <h1>Hogar Colonia — Calendario de limpieza</h1>
+      <h2>${escapeHtml(label)} (${dates})</h2>
+      ${renderWeekGridTable(w)}
+      <p class="print-footer">Generado ${new Date().toLocaleDateString('es-AR')}</p>
+    `;
+  }
+
+  function handlePrintWeek(startDate) {
+    const week = state.lockedWeeks.find((w) => w.startDate === startDate);
+    if (!week) return;
+    const printArea = document.getElementById('print-area');
+    printArea.innerHTML = renderPrintableWeek(week);
+    window.print();
   }
 
   // -----------------------------------------------------------------
@@ -448,10 +534,21 @@
     });
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
+  function initSemanasEvents() {
+    const el = document.getElementById('tab-semanas');
+    el.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action="print-week"]');
+      if (!btn) return;
+      handlePrintWeek(btn.dataset.start);
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', async () => {
     initTabs();
     initGenerarEvents();
     initEstudiantesEvents();
+    initSemanasEvents();
+    await initState();
     renderAll();
   });
 })();

@@ -49,9 +49,21 @@ html, body {
 .app-header h1 {
   font-size: 1.4rem;
   font-weight: 600;
-  margin: 0 0 18px;
+  margin: 0 0 8px;
   color: var(--text);
 }
+
+.conn-status {
+  display: inline-block;
+  font-size: 0.74rem;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+.conn-status.online { color: #b3d9bc; border-color: #2c4534; }
+.conn-status.offline { color: #e8caa0; border-color: #4a3d20; }
 
 .tabs {
   display: inline-flex;
@@ -225,4 +237,34 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
   font-size: 0.86rem;
   box-shadow: 0 4px 18px rgba(0,0,0,0.4);
   z-index: 50;
+}
+
+/* Exportar a PDF: se arma en #print-area y se imprime con window.print().
+   En pantalla queda oculto; en impresión, es lo ÚNICO visible, en claro
+   (no el tema oscuro de la app) para que ahorre tinta y se lea bien. */
+#print-area { display: none; }
+@media print {
+  body { background: #fff !important; }
+  body * { visibility: hidden; }
+  #print-area, #print-area * { visibility: visible; }
+  #print-area {
+    display: block;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: #fff;
+    color: #111;
+    padding: 12px;
+  }
+  #print-area h1 { font-size: 1.2rem; margin: 0 0 4px; }
+  #print-area h2 { font-size: 1rem; margin: 0 0 14px; color: #444; }
+  #print-area table { width: 100%; border-collapse: collapse; }
+  #print-area th, #print-area td { border: 1px solid #999; padding: 6px 8px; color: #111; background: #fff; }
+  #print-area th { background: #eee; }
+  #print-area tr.dow-1, #print-area tr.dow-2, #print-area tr.dow-3, #print-area tr.dow-4,
+  #print-area tr.dow-5, #print-area tr.dow-6, #print-area tr.dow-7 { background: #fff; }
+  #print-area .day-pill { background: transparent !important; color: #111; padding: 0; font-weight: 700; }
+  #print-area .muted { color: #666; }
+  #print-area .print-footer { margin-top: 14px; font-size: 0.75rem; color: #666; }
 }
