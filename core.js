@@ -23,14 +23,15 @@
   ];
 
   // Orden fijo de columnas/áreas, tal como debe aparecer siempre en la UI.
+  // maxWeekly = techo estricto semanal (null = sin techo, absorbe lo que sobre).
   const AREAS = [
-    { id: 'kitchen1', label: 'Cocina', points: 7, minWeekly: 4 },
-    { id: 'kitchen2', label: 'Cocina 2', points: 5, minWeekly: 3 },
-    { id: 'dining', label: 'Comedor', points: 7, minWeekly: 4 },
-    { id: 'studyRoom', label: 'Sala Estudios', points: 5, minWeekly: 2 },
-    { id: 'studyBathroom', label: 'Baño Estudios', points: 5, minWeekly: 2 },
-    { id: 'laundry', label: 'Lavadero', points: 3, minWeekly: 1 },
-    { id: 'stairs', label: 'Escaleras', points: 3, minWeekly: 1 },
+    { id: 'kitchen1', label: 'Cocina', points: 7, minWeekly: 4, maxWeekly: null },
+    { id: 'kitchen2', label: 'Cocina 2', points: 5, minWeekly: 3, maxWeekly: 3 },
+    { id: 'dining', label: 'Comedor', points: 7, minWeekly: 4, maxWeekly: null },
+    { id: 'studyRoom', label: 'Sala Estudios', points: 5, minWeekly: 2, maxWeekly: 2 },
+    { id: 'studyBathroom', label: 'Baño Estudios', points: 5, minWeekly: 2, maxWeekly: 2 },
+    { id: 'laundry', label: 'Lavadero', points: 3, minWeekly: 1, maxWeekly: 1 },
+    { id: 'stairs', label: 'Escaleras', points: 3, minWeekly: 1, maxWeekly: 1 },
   ];
   const AREA_BY_ID = Object.fromEntries(AREAS.map((a) => [a.id, a]));
   function areaLabel(id) { return AREA_BY_ID[id] ? AREA_BY_ID[id].label : id; }
@@ -206,23 +207,72 @@
   }
 
   // ---------------------------------------------------------------------
-  // Resolución de un día (backtracking exacto sobre pocos estudiantes/día)
+  // Resolución de una semana: dos fases para que los techos semanales se
+  // repartan con visión de conjunto sin que el backtracking explote en
+  // tiempo (resolver los ~20 estudiantes de la semana como un solo
+  // problema combinatorio es intratable; día por día sin más es rápido
+  // pero "gasta" cupos de forma miope). Se combinan ambas ventajas:
+  //
+  //  Fase 1 — computeWeekQuota: con el total de asignaciones de la semana
+  //  (que SÍ se conoce de entrada, sin importar en qué día caiga cada una),
+  //  reparte cuánto le toca a cada área en toda la semana: primero cubre
+  //  los mínimos, después reparte el resto en Cocina y Comedor (sin techo).
+  //  Esto ya respeta los techos por construcción, con visión completa.
+  //
+  //  Fase 2 — solveDayAgainstQuota: recorre los días en orden cronológico
+  //  y resuelve cada día (backtracking exacto, pocos estudiantes/día) contra
+  //  la cuota restante, igual que antes pero ahora la cuota no se agota por
+  //  casualidad del orden de los días.
   // ---------------------------------------------------------------------
 
-  function solveDay(dateISO, studentsToday, ctx) {
+  function computeWeekQuota(totalTasks) {
+    const quota = {};
+    AREAS.forEach((a) => { quota[a.id] = 0; });
+    let remaining = totalTasks;
+    AREAS.forEach((a) => {
+      const cap = a.maxWeekly == null ? Infinity : a.maxWeekly;
+      const take = Math.max(0, Math.min(a.minWeekly, cap - quota[a.id], remaining));
+      quota[a.id] += take;
+      remaining -= take;
+    });
+    const flexible = AREAS.filter((a) => a.maxWeekly == null); // Cocina y Comedor: sin techo, absorben el resto
+    let idx = 0;
+    while (remaining > 0 && flexible.length) {
+      quota[flexible[idx % flexible.length].id]++;
+      remaining--;
+      idx++;
+    }
+    // Caso límite (no debería darse con la configuración actual: siempre hay
+    // áreas sin techo): si aun así sobra demanda, se reparte igual para que
+    // nadie quede sin asignar; auditWeek lo reportará como techo superado.
+    idx = 0;
+    while (remaining > 0) {
+      quota[AREAS[idx % AREAS.length].id]++;
+      remaining--;
+      idx++;
+    }
+    return quota;
+  }
+
+  function solveDayAgainstQuota(dateISO, studentsToday, ctx) {
     const n = studentsToday.length;
     if (n === 0) return [];
-    let best = null;
-    let bestCost = Infinity;
 
+    // Costo único (una sola búsqueda, sin pases "estricto/relajado" por
+    // separado): así repetir área y exceder la cuota semanal compiten en el
+    // mismo término y gana siempre la opción realmente menos mala, en vez de
+    // que una regla "gane" a la otra solo por el orden en que se evalúan.
     function costOf(student, area) {
       let cost = 0;
       const last = lastAreaForStudent(ctx.sortedAssignments, student.id, dateISO);
       if (last === area.id) cost += 1000; // evitar repetir área respecto a la última asignación registrada
       const target = TIER_TARGET_POINTS[ctx.tierOf[student.id]];
       cost += Math.abs(area.points - target) * 10; // equidad por terciles de carga
-      const deficit = Math.max(0, area.minWeekly - (ctx.weekCounts[area.id] || 0));
-      cost -= deficit * 6; // priorizar áreas que todavía no llegan al mínimo semanal
+      const deficit = Math.max(0, (ctx.quota[area.id] || 0) - (ctx.weekCounts[area.id] || 0));
+      cost -= deficit * 6; // usar la cuota disponible en vez de dejarla sin tocar (evita que se amontone en pocas áreas)
+      const overBy = Math.max(0, (ctx.weekCounts[area.id] || 0) + 1 - (ctx.quota[area.id] || 0));
+      cost += overBy * 700; // techo semanal: muy penalizado si igual hay que excederlo (último recurso)
+      if (area.id === 'dining' && student.kitchenGroup === 'k2') cost -= 300; // Comedor es su ÚNICO respaldo sin techo (no pueden limpiar Cocina): dárselo a ellos libera Cocina para el resto
       const lastDone = lastDoneDate(ctx.sortedAssignments, student.id, area.id, dateISO);
       if (lastDone) {
         const daysSince = (fromISO(dateISO) - fromISO(lastDone)) / 86400000;
@@ -233,25 +283,123 @@
       return cost;
     }
 
+    let best = null;
+    let bestCost = Infinity;
     function backtrack(i, usedSet, acc, accCost) {
       if (accCost >= bestCost) return;
-      if (i === n) {
-        bestCost = accCost;
-        best = acc.slice();
-        return;
-      }
+      if (i === n) { bestCost = accCost; best = acc.slice(); return; }
       const student = studentsToday[i];
       const elig = eligibleAreas(student).filter((a) => !usedSet.has(a.id));
-      for (const area of elig) {
+      const scored = elig.map((a) => ({ area: a, cost: costOf(student, a) })).sort((x, y) => x.cost - y.cost);
+      for (const { area, cost } of scored) {
         usedSet.add(area.id);
         acc.push({ studentId: student.id, area: area.id });
-        backtrack(i + 1, usedSet, acc, accCost + costOf(student, area));
+        backtrack(i + 1, usedSet, acc, accCost + cost);
         acc.pop();
         usedSet.delete(area.id);
       }
     }
     backtrack(0, new Set(), [], 0);
     return best || [];
+  }
+
+  // Cuenta cuántos estudiantes de un día son del grupo Cocina 2: para ellos
+  // Comedor es el único respaldo sin techo (Cocina les está vedada), así que
+  // un día con muchos es más "ajustado" que uno con solo estudiantes del
+  // grupo Cocina (que tienen Cocina Y Comedor como respaldo).
+  function dayTightness(studentsToday) {
+    if (!studentsToday.length) return 0;
+    const k2 = studentsToday.filter((s) => s.kitchenGroup === 'k2').length;
+    return k2 / studentsToday.length;
+  }
+
+  function solveWeek(tasks, ctx) {
+    if (!tasks.length) return [];
+    const quota = computeWeekQuota(tasks.length); // objetivo fijo por área para toda la semana
+    const weekCounts = {};
+    AREAS.forEach((a) => { weekCounts[a.id] = 0; });
+    const byDate = new Map();
+    tasks.forEach((t) => {
+      if (!byDate.has(t.dateISO)) byDate.set(t.dateISO, []);
+      byDate.get(t.dateISO).push(t.student);
+    });
+
+    // Resolver primero los días más ajustados (más estudiantes de Cocina 2)
+    // para que no se queden sin cupo por culpa de días más flexibles que ya
+    // consumieron el cupo compartido de áreas sin techo. El resultado igual
+    // se devuelve indexado por fecha real, sin importar este orden interno.
+    const datesByTightness = [...byDate.keys()].sort((a, b) => {
+      const diff = dayTightness(byDate.get(b)) - dayTightness(byDate.get(a));
+      if (diff !== 0) return diff;
+      return a < b ? -1 : 1; // empate: orden cronológico, para que sea determinístico
+    });
+
+    const results = [];
+    for (const dateISO of datesByTightness) {
+      const studentsToday = byDate.get(dateISO);
+      const solved = solveDayAgainstQuota(dateISO, studentsToday, { tierOf: ctx.tierOf, sortedAssignments: ctx.sortedAssignments, quota, weekCounts });
+      solved.forEach((a) => {
+        weekCounts[a.area] = (weekCounts[a.area] || 0) + 1;
+        results.push({ studentId: a.studentId, area: a.area, date: dateISO });
+      });
+    }
+
+    const studentById = Object.fromEntries(tasks.map((t) => [t.student.id, t.student]));
+    return repairCapOverruns(results, studentById, ctx.sortedAssignments);
+  }
+
+  /**
+   * Segunda pasada: la búsqueda día a día (aunque procesa primero los días
+   * más ajustados) igual puede dejar algún área semanal por encima de su
+   * techo si esa fue la única forma de no dejar a alguien sin asignar ese
+   * día. Acá se intenta "reparar" cada excedente con un intercambio: mover
+   * a UN estudiante de esa asignación hacia otra área elegible, del mismo
+   * día, que no esté ya usada ese día, que no le genere una repetición, y
+   * que no esté ya en su propio techo. Si no hay ningún intercambio válido,
+   * el excedente queda como está y auditWeek lo reporta como conflicto —
+   * nunca se fuerza en silencio ni se deja a nadie sin asignar.
+   */
+  function repairCapOverruns(results, studentById, sortedAssignments) {
+    const usedByDate = {};
+    results.forEach((r) => {
+      usedByDate[r.date] = usedByDate[r.date] || new Set();
+      usedByDate[r.date].add(r.area);
+    });
+    const weekCounts = {};
+    AREAS.forEach((a) => { weekCounts[a.id] = 0; });
+    results.forEach((r) => { weekCounts[r.area]++; });
+
+    let iterations = 0;
+    let changed = true;
+    while (changed && iterations < 100) {
+      changed = false;
+      iterations++;
+      for (const area of AREAS) {
+        if (area.maxWeekly == null || weekCounts[area.id] <= area.maxWeekly) continue;
+        const candidates = results.filter((r) => r.area === area.id);
+        for (const r of candidates) {
+          const student = studentById[r.studentId];
+          const lastArea = lastAreaForStudent(sortedAssignments, student.id, r.date);
+          const alternatives = eligibleAreas(student)
+            .filter((a) => a.id !== area.id)
+            .filter((a) => !usedByDate[r.date].has(a.id))
+            .filter((a) => a.id !== lastArea)
+            .filter((a) => a.maxWeekly == null || weekCounts[a.id] < a.maxWeekly)
+            .sort((a, b) => (weekCounts[a.id] - a.minWeekly) - (weekCounts[b.id] - b.minWeekly)); // preferir la que más lejos está de su propio mínimo
+          if (alternatives.length) {
+            const newArea = alternatives[0];
+            usedByDate[r.date].delete(area.id);
+            usedByDate[r.date].add(newArea.id);
+            weekCounts[area.id]--;
+            weekCounts[newArea.id]++;
+            r.area = newArea.id;
+            changed = true;
+            break;
+          }
+        }
+      }
+    }
+    return results;
   }
 
   /**
@@ -263,20 +411,29 @@
     const sortedAssignments = allAssignmentsSorted(lockedWeeks);
     const activeStudents = students.filter((s) => s.active);
     const tierOf = computeTiers(activeStudents, sortedAssignments);
-    const weekCounts = {};
-    AREAS.forEach((a) => { weekCounts[a.id] = 0; });
     const studentsById = Object.fromEntries(students.map((s) => [s.id, s]));
+
+    const tasks = [];
+    weekInfo.days.forEach((date) => {
+      const dateISO = toISO(date);
+      const dow = isoWeekdayMon1(date);
+      activeStudents.filter((s) => s.fixedDay === dow).forEach((s) => tasks.push({ dateISO, dow, student: s }));
+    });
+    const solved = solveWeek(tasks, { tierOf, sortedAssignments });
+    const solvedByKey = new Map(solved.map((a) => [`${a.date}|${a.studentId}`, a.area]));
 
     const days = weekInfo.days.map((date) => {
       const dateISO = toISO(date);
       const dow = isoWeekdayMon1(date);
       const studentsToday = activeStudents.filter((s) => s.fixedDay === dow);
-      const solved = solveDay(dateISO, studentsToday, { tierOf, sortedAssignments, weekCounts });
-      solved.forEach((a) => { weekCounts[a.area] = (weekCounts[a.area] || 0) + 1; });
       return {
         date: dateISO,
         dow,
-        assignments: solved.map((a) => ({ studentId: a.studentId, name: studentsById[a.studentId].name, area: a.area })),
+        assignments: studentsToday.map((s) => ({
+          studentId: s.id,
+          name: studentsById[s.id].name,
+          area: solvedByKey.get(`${dateISO}|${s.id}`),
+        })),
       };
     });
 
@@ -350,6 +507,14 @@
           message: `"${a.label}" quedó con ${counts[a.id]} asignación(es) esta semana, por debajo del mínimo habitual (${a.minWeekly})${isPartial ? ' — semana parcial de inicio/fin de mes, puede ser esperable.' : '.'}`,
         });
       }
+      if (a.maxWeekly != null && counts[a.id] > a.maxWeekly) {
+        warnings.push({
+          type: 'maximum',
+          severity: 'error',
+          area: a.id,
+          message: `"${a.label}" superó el techo semanal estricto: ${counts[a.id]} asignación(es) contra un máximo de ${a.maxWeekly}. Revisar manualmente cuál de esas asignaciones mover a otra área.`,
+        });
+      }
     });
 
     return { warnings, counts, isPartial };
@@ -402,7 +567,7 @@
     countsForStudent,
     computeTiers,
     eligibleAreas,
-    solveDay,
+    solveWeek,
     generateWeekProposal,
     auditWeek,
     getNextPendingWeekInfo,

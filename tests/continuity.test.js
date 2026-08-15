@@ -223,6 +223,45 @@ check('simulación de 12 meses consecutivos sin violar reglas duras', () => {
   assert.strictEqual(totalRepeatWarnings, 0, 'el resolutor por backtracking debería poder evitar siempre las repeticiones dada la holgura disponible (2-3 estudiantes/día contra 6 áreas elegibles)');
 });
 
+// ---------------------------------------------------------------------
+// 6. Techos semanales estrictos: Lavadero/Escaleras <=1, Sala/Baño <=2,
+//    Cocina 2 <=3. Cocina y Comedor no tienen techo (absorben lo que sobra).
+//    El algoritmo debe respetarlos casi siempre; si alguna vez no puede
+//    (holgura insuficiente), el estudiante igual queda asignado y la
+//    auditoría lo reporta como conflicto en vez de ocultarlo.
+// ---------------------------------------------------------------------
+check('techos semanales estrictos se respetan (o se reportan como conflicto, nunca en silencio)', () => {
+  const students = JSON.parse(JSON.stringify(Core.INITIAL_STUDENTS));
+  const lockedWeeks = [];
+  let year = 2026, month = 1;
+  let weeksChecked = 0;
+  let capOverruns = 0;
+  for (let i = 0; i < 12; i++) {
+    Core.monthWeeks(year, month).forEach((w) => {
+      const { proposal, audit } = lockWeek(students, lockedWeeks, w);
+      weeksChecked++;
+      const counts = {};
+      Core.AREAS.forEach((a) => { counts[a.id] = 0; });
+      proposal.days.forEach((day) => day.assignments.forEach((a) => { counts[a.area]++; }));
+
+      Core.AREAS.forEach((a) => {
+        if (a.maxWeekly == null) return;
+        const reported = audit.warnings.some((w2) => w2.type === 'maximum' && w2.area === a.id);
+        if (counts[a.id] > a.maxWeekly) {
+          capOverruns++;
+          // Si el techo se superó, TIENE que estar reportado como conflicto (nunca en silencio).
+          assert.ok(reported, `"${a.label}" superó su techo (${counts[a.id]}/${a.maxWeekly}) en ${w.year}-${w.month} sin ser reportado`);
+        } else {
+          assert.ok(!reported, `se reportó un techo superado para "${a.label}" que en realidad no se superó`);
+        }
+      });
+    });
+    month++;
+    if (month > 12) { month = 1; year++; }
+  }
+  console.log(`   (${weeksChecked} semanas verificadas contra los techos semanales; ${capOverruns} casos de holgura insuficiente, todos reportados correctamente como conflicto)`);
+});
+
 console.log(`\n${passed} pruebas OK`);
 if (process.exitCode) {
   console.error('Hay pruebas fallidas.');
