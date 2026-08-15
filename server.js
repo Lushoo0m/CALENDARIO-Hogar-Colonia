@@ -4,17 +4,64 @@
  * para que todos los que abran el link (misma red del hogar) vean y editen
  * el MISMO calendario en vez de una copia por navegador.
  *
+ * Acceso restringido: pide usuario/clave (autenticación HTTP básica, la
+ * ventana nativa del navegador) antes de dejar pasar CUALQUIER pedido. La
+ * clave vive en access-code.txt junto a este archivo — si no existe, se
+ * genera una la primera vez que se prende el servidor. Para cambiarla:
+ * editá ese archivo y reiniciá el servidor.
+ *
+ * Nota de seguridad honesta: esto alcanza para "que no entre cualquiera en
+ * mi wifi", no es seguridad de nivel empresarial (viaja sin cifrar en HTTP
+ * plano). Para exponerlo más allá de la red de tu casa hace falta HTTPS.
+ *
  * Uso: node server.js
  */
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data.json');
+const ACCESS_CODE_FILE = path.join(__dirname, 'access-code.txt');
 const PUBLIC_FILES = new Set(['/index.html', '/styles.css', '/core.js', '/ui.js']);
 const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript', '.json': 'application/json' };
+
+function loadOrCreateAccessCode() {
+  try {
+    const existing = fs.readFileSync(ACCESS_CODE_FILE, 'utf8').trim();
+    if (existing) return existing;
+  } catch { /* no existe todavía: se genera abajo */ }
+  const generated = `hogar-${crypto.randomInt(1000, 9999)}`;
+  fs.writeFileSync(ACCESS_CODE_FILE, generated);
+  return generated;
+}
+const ACCESS_CODE = loadOrCreateAccessCode();
+
+function isAuthorized(req) {
+  const header = req.headers.authorization || '';
+  if (!header.startsWith('Basic ')) return false;
+  let password = '';
+  try {
+    const decoded = Buffer.from(header.slice(6), 'base64').toString('utf8');
+    password = decoded.split(':').slice(1).join(':'); // "usuario:clave" — el usuario no se valida
+  } catch { return false; }
+  const a = Buffer.from(password);
+  const b = Buffer.from(ACCESS_CODE);
+  if (a.length !== b.length) return false; // timingSafeEqual exige igual longitud
+  return crypto.timingSafeEqual(a, b);
+}
+
+function requireAuth(req, res) {
+  if (isAuthorized(req)) return true;
+  res.writeHead(401, {
+    'WWW-Authenticate': 'Basic realm="Calendario Hogar Colonia"',
+    'Content-Type': 'text/plain; charset=utf-8',
+  });
+  res.end('Acceso restringido. Pedile la clave a quien administra el calendario.');
+  return false;
+}
 
 function sendJson(res, status, obj) {
   const body = JSON.stringify(obj);
@@ -44,6 +91,7 @@ function readBody(req, maxBytes, cb) {
 }
 
 const server = http.createServer((req, res) => {
+  if (!requireAuth(req, res)) return;
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   if (url.pathname === '/api/state' && req.method === 'GET') {
@@ -98,6 +146,9 @@ server.listen(PORT, () => {
   localAddresses().forEach((addr) => {
     console.log(`  Para compartir en tu red doméstica (otra compu o celular en el mismo Wi-Fi): http://${addr}:${PORT}`);
   });
+  console.log('');
+  console.log(`  Clave de acceso (pedila a quien quieras dejar entrar): ${ACCESS_CODE}`);
+  console.log(`  (guardada en ${ACCESS_CODE_FILE} — para cambiarla, editá ese archivo y reiniciá el servidor)`);
   console.log('');
   console.log('Dejá esta ventana abierta mientras uses la app. Para apagarlo: Ctrl+C.');
 });
