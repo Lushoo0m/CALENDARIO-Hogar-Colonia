@@ -357,7 +357,7 @@
     const el = document.getElementById('tab-estudiantes');
     const sortedAssignments = Core.allAssignmentsSorted(state.lockedWeeks);
     const activeStudents = state.students.filter((s) => s.active);
-    const tierOf = Core.computeTiers(activeStudents, sortedAssignments);
+    const tierOf = Core.computeDisplayTiers(activeStudents, sortedAssignments);
     // Orden puro por carga (descendente) — sin desempate alfabético ni por
     // grupo de cocina. Array.sort es estable, así que los empates en puntos
     // simplemente mantienen el orden que ya tenían, no uno alfabético.

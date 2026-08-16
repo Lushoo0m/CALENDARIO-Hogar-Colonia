@@ -203,6 +203,31 @@
     return tierOf;
   }
 
+  /**
+   * Igual que computeTiers, pero para MOSTRAR en pantalla (badge de carga
+   * por estudiante): un empate exacto de puntos nunca separa a dos
+   * estudiantes en tiers distintos, aunque el tercio quede desparejo.
+   * No se usa para el algoritmo de asignación — ahí importa que el corte
+   * sea siempre el mismo (computeTiers de arriba), no que se vea "prolijo".
+   */
+  function computeDisplayTiers(activeStudents, sortedAssignments) {
+    const withPoints = activeStudents.map((s) => ({
+      id: s.id,
+      points: totalPointsForStudent(sortedAssignments, s.id),
+    }));
+    withPoints.sort((a, b) => a.points - b.points);
+    const n = withPoints.length;
+    let lowEnd = Math.ceil(n / 3);
+    let midEnd = lowEnd + Math.ceil((n - lowEnd) / 2);
+    while (lowEnd > 0 && lowEnd < n && withPoints[lowEnd].points === withPoints[lowEnd - 1].points) lowEnd++;
+    while (midEnd > lowEnd && midEnd < n && withPoints[midEnd].points === withPoints[midEnd - 1].points) midEnd++;
+    const tierOf = {};
+    withPoints.forEach((s, idx) => {
+      tierOf[s.id] = idx < lowEnd ? 'low' : idx < midEnd ? 'mid' : 'high';
+    });
+    return tierOf;
+  }
+
   function eligibleAreas(student) {
     return AREAS.filter((a) => {
       if (a.id === 'kitchen1' && student.kitchenGroup === 'k2') return false;
@@ -650,6 +675,7 @@
     totalPointsForStudent,
     countsForStudent,
     computeTiers,
+    computeDisplayTiers,
     eligibleAreas,
     solveWeek,
     generateWeekProposal,

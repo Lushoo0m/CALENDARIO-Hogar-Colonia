@@ -65,7 +65,11 @@ function requireAuth(req, res) {
 
 function sendJson(res, status, obj) {
   const body = JSON.stringify(obj);
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body) });
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body),
+    'Cache-Control': 'no-store',
+  });
   res.end(body);
 }
 
@@ -73,7 +77,14 @@ function serveFile(res, filePath) {
   fs.readFile(filePath, (err, content) => {
     if (err) { sendJson(res, 404, { error: 'No encontrado' }); return; }
     const ext = path.extname(filePath);
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    // Sin caché: si no, el navegador puede seguir usando una versión vieja
+    // de ui.js/core.js/etc. después de reemplazar los archivos, aunque el
+    // servidor ya esté sirviendo los nuevos — muy confuso para depurar.
+    res.writeHead(200, {
+      'Content-Type': MIME[ext] || 'application/octet-stream',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      Pragma: 'no-cache',
+    });
     res.end(content);
   });
 }
