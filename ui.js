@@ -152,7 +152,11 @@
   // trae un <select> para cambiar el área de ese estudiante ahí mismo — sin
   // una lista aparte de dropdowns arriba. Cambiar el valor mueve la celda a
   // la columna nueva al re-renderizar (edición "en tiempo real").
-  function renderEditableWeekGridTable(proposal, studentsById) {
+  // `target` distingue a qué handler debe ir el cambio cuando puede haber
+  // DOS grillas editables a la vez en pantalla (la propuesta actual y la
+  // semana anterior en edición): 'proposal' → handleSetArea, 'draft' →
+  // handleEditWeekSetArea.
+  function renderEditableWeekGridTable(proposal, studentsById, target) {
     const header = `<tr><th>Día</th>${Core.AREAS.map((a) => `<th>${escapeHtml(a.label)}</th>`).join('')}</tr>`;
     const rows = proposal.days.map((day) => {
       const byArea = {};
@@ -166,7 +170,7 @@
         const options = elig.map((opt) => `<option value="${opt.id}" ${opt.id === a.area ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('');
         return `<td class="cell-edit">
           <div class="cell-student">${escapeHtml(a.name)}</div>
-          <select class="cell-area-select" data-action="set-area" data-date="${day.date}" data-student="${a.studentId}">${options}</select>
+          <select class="cell-area-select" data-action="set-area" data-target="${target}" data-date="${day.date}" data-student="${a.studentId}">${options}</select>
         </td>`;
       }).join('');
       return `<tr class="dow-${day.dow}"><td><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)}</td>${cells}</tr>`;
@@ -181,11 +185,46 @@
     const el = document.getElementById('tab-generar');
     if (state.pendingProposal) {
       const proposal = state.pendingProposal;
-      const audit = Core.auditWeek(state.students, state.lockedWeeks, proposal);
+      const audit = Core.auditWeek(state.students, historyForAudit(), proposal);
       const label = `Semana ${proposal.weekIndex} de ${Core.MONTH_NAMES_ES[proposal.month - 1]} ${proposal.year} (${Core.formatDateEs(Core.fromISO(proposal.startDate))} – ${Core.formatDateEs(Core.fromISO(proposal.endDate))})`;
       const studentsById = Object.fromEntries(state.students.map((s) => [s.id, s]));
       const previousWeek = [...state.lockedWeeks].sort((a, b) => (a.endDate < b.endDate ? 1 : -1))[0];
       const previousLabel = previousWeek ? `Semana ${previousWeek.weekIndex} de ${Core.MONTH_NAMES_ES[previousWeek.month - 1]} ${previousWeek.year} (${Core.formatDateEs(Core.fromISO(previousWeek.startDate))} – ${Core.formatDateEs(Core.fromISO(previousWeek.endDate))})` : '';
+      const editingPrevious = previousWeek && editingWeekStart === previousWeek.startDate;
+
+      let previousBlock = '';
+      if (previousWeek) {
+        const toggle = `
+          <label class="switch" title="${editingPrevious ? 'Tocá para volver a bloquear' : 'Tocá para editar'}">
+            <input type="checkbox" data-action="toggle-previous-lock" data-start="${previousWeek.startDate}" ${editingPrevious ? 'checked' : ''}>
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+            <span class="switch-label">${editingPrevious ? 'Editando' : 'Bloqueada'}</span>
+          </label>`;
+        if (editingPrevious) {
+          const ownHistory = state.lockedWeeks.filter((w) => w.startDate !== previousWeek.startDate);
+          const ownAudit = Core.auditWeek(state.students, ownHistory, editingWeekDraft);
+          previousBlock = `
+            <div class="card">
+              <div class="week-card-head"><h3>Semana anterior <span class="muted">— editando en simultáneo</span></h3>${toggle}</div>
+              <p class="muted">${escapeHtml(previousLabel)}</p>
+              <div class="alert warning">Estás editando la semana anterior mientras revisás la propuesta actual. Los cambios se guardan al volver a bloquear (switch), y ahí la propuesta de arriba se recalcula sola con el historial ya corregido.</div>
+              <div class="audit-list">${renderAudit(ownAudit)}</div>
+              ${renderEditableWeekGridTable(editingWeekDraft, studentsById, 'draft')}
+              <div class="btn-row">
+                <button class="btn" data-action="confirm-previous-week">Confirmar y bloquear de nuevo</button>
+                <button class="btn secondary" data-action="cancel-edit-week">Cancelar sin guardar</button>
+              </div>
+            </div>`;
+        } else {
+          previousBlock = `
+            <div class="card">
+              <div class="week-card-head"><h3>Semana anterior <span class="muted">(referencia — confirmá que nadie repite área)</span></h3>${toggle}</div>
+              <p class="muted">${escapeHtml(previousLabel)}</p>
+              ${renderWeekGridTable(previousWeek)}
+            </div>`;
+        }
+      }
+
       el.innerHTML = `
         <div class="card">
           <h2>Propuesta: ${escapeHtml(label)}</h2>
@@ -194,19 +233,14 @@
         </div>
         <div class="card">
           <h3>Vista previa (editable)</h3>
-          ${renderEditableWeekGridTable(proposal, studentsById)}
+          ${renderEditableWeekGridTable(proposal, studentsById, 'proposal')}
           <div class="btn-row">
             <button class="btn secondary" data-action="regenerate">Regenerar propuesta automática</button>
             <button class="btn" data-action="approve">Aprobar y bloquear semana</button>
             <button class="btn danger" data-action="discard">Descartar propuesta</button>
           </div>
         </div>
-        ${previousWeek ? `
-        <div class="card">
-          <h3>Semana anterior <span class="muted">(referencia — confirmá que nadie repite área)</span></h3>
-          <p class="muted">${escapeHtml(previousLabel)}</p>
-          ${renderWeekGridTable(previousWeek)}
-        </div>` : ''}
+        ${previousBlock}
       `;
       return;
     }
@@ -324,10 +358,13 @@
     const sortedAssignments = Core.allAssignmentsSorted(state.lockedWeeks);
     const activeStudents = state.students.filter((s) => s.active);
     const tierOf = Core.computeTiers(activeStudents, sortedAssignments);
+    // Orden puro por carga (descendente) — sin desempate alfabético ni por
+    // grupo de cocina. Array.sort es estable, así que los empates en puntos
+    // simplemente mantienen el orden que ya tenían, no uno alfabético.
     const sortedStudents = [...state.students].sort((a, b) => {
       const pb = Core.totalPointsForStudent(sortedAssignments, b.id);
       const pa = Core.totalPointsForStudent(sortedAssignments, a.id);
-      return pb - pa || a.name.localeCompare(b.name, 'es');
+      return pb - pa;
     });
     const maxPoints = Math.max(1, ...state.students.map((s) => Core.totalPointsForStudent(sortedAssignments, s.id)));
 
@@ -515,7 +552,7 @@
           <div class="week-card-head"><h3>${escapeHtml(label)} — editando ${escapeHtml(weekLabel)}</h3></div>
           <div class="alert warning">Estás editando una semana ya bloqueada — es una excepción manual explícita. Se guarda apenas confirmes.</div>
           <div class="audit-list">${renderAudit(audit)}</div>
-          ${renderEditableWeekGridTable(editingWeekDraft, studentsById)}
+          ${renderEditableWeekGridTable(editingWeekDraft, studentsById, 'draft')}
           <div class="btn-row">
             <button class="btn" data-action="save-edit-week">Guardar cambios</button>
             <button class="btn secondary" data-action="cancel-edit-week">Cancelar</button>
@@ -562,24 +599,31 @@
     showToast('Semana desbloqueada.');
   }
 
+  // El switch de "semana anterior" en Generar y el botón "Editar" en
+  // Calendarios anteriores comparten este mismo mecanismo de borrador
+  // (editingWeekStart/editingWeekDraft), así que cualquiera de los dos deja
+  // a la otra pestaña consistente — por eso todos re-renderizan con renderAll().
+  function historyForAudit() {
+    if (!editingWeekStart) return state.lockedWeeks;
+    return state.lockedWeeks.map((w) => (w.startDate === editingWeekStart ? editingWeekDraft : w));
+  }
   function handleEditWeekStart(startDate) {
     const week = state.lockedWeeks.find((w) => w.startDate === startDate);
     if (!week) return;
-    if (!confirm('Vas a editar una semana ya bloqueada. Es una excepción manual explícita: los cambios se guardan de inmediato y afectan la equidad acumulada y las próximas semanas que generes a partir de ahora. ¿Continuar?')) return;
     editingWeekStart = startDate;
     editingWeekDraft = JSON.parse(JSON.stringify(week));
-    renderSemanas();
+    renderAll();
   }
   function handleEditWeekCancel() {
     editingWeekStart = null;
     editingWeekDraft = null;
-    renderSemanas();
+    renderAll();
   }
   function handleEditWeekSetArea(date, studentId, area) {
     const day = editingWeekDraft.days.find((d) => d.date === date);
     const a = day && day.assignments.find((x) => x.studentId === studentId);
     if (a) a.area = area;
-    renderSemanas();
+    renderAll();
   }
   function handleEditWeekSave() {
     const idx = state.lockedWeeks.findIndex((w) => w.startDate === editingWeekStart);
@@ -590,6 +634,29 @@
     saveState();
     renderAll();
     showToast('Semana bloqueada actualizada.');
+  }
+  // Variante para el switch de "semana anterior" en Generar: además de
+  // guardar, recalcula y vuelve a proponer la semana actual desde cero con
+  // el historial ya actualizado — para que la propuesta activa no quede
+  // basada en una versión vieja de la semana que se acaba de corregir.
+  function handleConfirmPreviousWeekEdit() {
+    const idx = state.lockedWeeks.findIndex((w) => w.startDate === editingWeekStart);
+    if (idx === -1) return;
+    state.lockedWeeks[idx] = editingWeekDraft;
+    editingWeekStart = null;
+    editingWeekDraft = null;
+    if (state.pendingProposal) {
+      const p = state.pendingProposal;
+      const weekInfo = {
+        index: p.weekIndex, year: p.year, month: p.month,
+        start: Core.fromISO(p.startDate), end: Core.fromISO(p.endDate),
+        days: p.days.map((d) => Core.fromISO(d.date)),
+      };
+      state.pendingProposal = Core.generateWeekProposal(state.students, state.lockedWeeks, weekInfo);
+    }
+    saveState();
+    renderAll();
+    showToast('Semana anterior confirmada. La propuesta actual se recalculó con el historial nuevo.');
   }
 
   // -----------------------------------------------------------------
@@ -642,10 +709,18 @@
       else if (action === 'regenerate') handleRegenerateClick();
       else if (action === 'discard') handleDiscardClick();
       else if (action === 'approve') handleApproveClick();
+      else if (action === 'confirm-previous-week') handleConfirmPreviousWeekEdit();
+      else if (action === 'cancel-edit-week') handleEditWeekCancel();
     });
     el.addEventListener('change', (e) => {
       if (e.target.id === 'start-month-input') handleStartMonthChange(e.target);
-      else if (e.target.matches('select[data-action="set-area"]')) handleSetArea(e.target);
+      else if (e.target.matches('input[data-action="toggle-previous-lock"]')) {
+        if (e.target.checked) handleEditWeekStart(e.target.dataset.start);
+        else handleConfirmPreviousWeekEdit();
+      } else if (e.target.matches('select[data-action="set-area"]')) {
+        if (e.target.dataset.target === 'draft') handleEditWeekSetArea(e.target.dataset.date, e.target.dataset.student, e.target.value);
+        else handleSetArea(e.target);
+      }
     });
   }
 
