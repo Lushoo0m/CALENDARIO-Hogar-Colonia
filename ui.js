@@ -15,6 +15,7 @@
   let state = null;
   let usingServer = true;
   let editingStudentId = null;
+  let expandedStudentId = null;
   let editingWeekStart = null;
   let editingWeekDraft = null;
 
@@ -147,21 +148,30 @@
     return audit.warnings.map((w) => `<div class="alert ${w.severity}">${escapeHtml(w.message)}</div>`).join('');
   }
 
-  function renderEditableDays(proposal, studentsById) {
-    return proposal.days.map((day) => {
+  // Misma grilla Día × Área que renderWeekGridTable, pero cada celda ocupada
+  // trae un <select> para cambiar el área de ese estudiante ahí mismo — sin
+  // una lista aparte de dropdowns arriba. Cambiar el valor mueve la celda a
+  // la columna nueva al re-renderizar (edición "en tiempo real").
+  function renderEditableWeekGridTable(proposal, studentsById) {
+    const header = `<tr><th>Día</th>${Core.AREAS.map((a) => `<th>${escapeHtml(a.label)}</th>`).join('')}</tr>`;
+    const rows = proposal.days.map((day) => {
+      const byArea = {};
+      day.assignments.forEach((a) => { byArea[a.area] = a; });
       const dateObj = Core.fromISO(day.date);
-      const head = `<div class="day-block-head"><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)}</div>`;
-      if (!day.assignments.length) {
-        return `<div class="day-block">${head}<p class="muted">Sin estudiantes activos con este día fijo.</p></div>`;
-      }
-      const rows = day.assignments.map((a) => {
+      const cells = Core.AREAS.map((ar) => {
+        const a = byArea[ar.id];
+        if (!a) return '<td><span class="muted">—</span></td>';
         const student = studentsById[a.studentId];
         const elig = student ? Core.eligibleAreas(student) : Core.AREAS;
-        const options = elig.map((ar) => `<option value="${ar.id}" ${ar.id === a.area ? 'selected' : ''}>${escapeHtml(ar.label)}</option>`).join('');
-        return `<div class="assign-row"><span class="name">${escapeHtml(a.name)}</span><select data-action="set-area" data-date="${day.date}" data-student="${a.studentId}">${options}</select></div>`;
+        const options = elig.map((opt) => `<option value="${opt.id}" ${opt.id === a.area ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('');
+        return `<td class="cell-edit">
+          <div class="cell-student">${escapeHtml(a.name)}</div>
+          <select class="cell-area-select" data-action="set-area" data-date="${day.date}" data-student="${a.studentId}">${options}</select>
+        </td>`;
       }).join('');
-      return `<div class="day-block">${head}${rows}</div>`;
+      return `<tr class="dow-${day.dow}"><td><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)}</td>${cells}</tr>`;
     }).join('');
+    return `<div class="table-wrap"><table>${header}${rows}</table></div>`;
   }
 
   // -----------------------------------------------------------------
@@ -174,25 +184,29 @@
       const audit = Core.auditWeek(state.students, state.lockedWeeks, proposal);
       const label = `Semana ${proposal.weekIndex} de ${Core.MONTH_NAMES_ES[proposal.month - 1]} ${proposal.year} (${Core.formatDateEs(Core.fromISO(proposal.startDate))} – ${Core.formatDateEs(Core.fromISO(proposal.endDate))})`;
       const studentsById = Object.fromEntries(state.students.map((s) => [s.id, s]));
+      const previousWeek = [...state.lockedWeeks].sort((a, b) => (a.endDate < b.endDate ? 1 : -1))[0];
+      const previousLabel = previousWeek ? `Semana ${previousWeek.weekIndex} de ${Core.MONTH_NAMES_ES[previousWeek.month - 1]} ${previousWeek.year} (${Core.formatDateEs(Core.fromISO(previousWeek.startDate))} – ${Core.formatDateEs(Core.fromISO(previousWeek.endDate))})` : '';
       el.innerHTML = `
         <div class="card">
           <h2>Propuesta: ${escapeHtml(label)}</h2>
-          <p class="muted">Editá el área de cada estudiante si hace falta. La IA nunca aplica esto por su cuenta: queda a la espera de que lo apruebes.</p>
+          <p class="muted">Editá el área de cada estudiante directo en la grilla. La IA nunca aplica esto por su cuenta: queda a la espera de que lo apruebes.</p>
           <div class="audit-list">${renderAudit(audit)}</div>
         </div>
         <div class="card">
-          <h3>Asignaciones por día (editable)</h3>
-          ${renderEditableDays(proposal, studentsById)}
-        </div>
-        <div class="card">
-          <h3>Vista previa</h3>
-          ${renderWeekGridTable(proposal)}
+          <h3>Vista previa (editable)</h3>
+          ${renderEditableWeekGridTable(proposal, studentsById)}
           <div class="btn-row">
             <button class="btn secondary" data-action="regenerate">Regenerar propuesta automática</button>
             <button class="btn" data-action="approve">Aprobar y bloquear semana</button>
             <button class="btn danger" data-action="discard">Descartar propuesta</button>
           </div>
         </div>
+        ${previousWeek ? `
+        <div class="card">
+          <h3>Semana anterior <span class="muted">(referencia — confirmá que nadie repite área)</span></h3>
+          <p class="muted">${escapeHtml(previousLabel)}</p>
+          ${renderWeekGridTable(previousWeek)}
+        </div>` : ''}
       `;
       return;
     }
@@ -303,10 +317,18 @@
   // -----------------------------------------------------------------
   // Tab: Estudiantes
   // -----------------------------------------------------------------
+  const TIER_LABELS = { high: 'Carga alta', mid: 'Carga media', low: 'Carga baja' };
+
   function renderEstudiantes() {
     const el = document.getElementById('tab-estudiantes');
     const sortedAssignments = Core.allAssignmentsSorted(state.lockedWeeks);
-    const sortedStudents = [...state.students].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    const activeStudents = state.students.filter((s) => s.active);
+    const tierOf = Core.computeTiers(activeStudents, sortedAssignments);
+    const sortedStudents = [...state.students].sort((a, b) => {
+      const pb = Core.totalPointsForStudent(sortedAssignments, b.id);
+      const pa = Core.totalPointsForStudent(sortedAssignments, a.id);
+      return pb - pa || a.name.localeCompare(b.name, 'es');
+    });
     const maxPoints = Math.max(1, ...state.students.map((s) => Core.totalPointsForStudent(sortedAssignments, s.id)));
 
     const dayOptions = Core.DOW_NAMES_ES.map((d, i) => `<option value="${i + 1}">${d}</option>`).join('');
@@ -315,28 +337,47 @@
       const points = Core.totalPointsForStudent(sortedAssignments, s.id);
       const pct = Math.round((points / maxPoints) * 100);
       const editing = editingStudentId === s.id;
+      const expanded = expandedStudentId === s.id;
       const kitchenLabel = s.kitchenGroup === 'k2' ? 'Cocina 2' : 'Cocina';
-      const mainHtml = editing ? `
+      const tier = tierOf[s.id];
+      const tierBadge = !s.active
+        ? '<span class="tier-badge inactive">Inactivo</span>'
+        : tier ? `<span class="tier-badge tier-${tier}">${TIER_LABELS[tier]}</span>` : '';
+
+      if (editing) {
+        const mainHtml = `
           <input type="text" id="edit-name-input" value="${escapeHtml(s.name)}">
           <div class="form-row" style="margin-top:8px;">
             <div class="form-field"><label>Día fijo</label><select id="edit-day-input">${Core.DOW_NAMES_ES.map((d, i) => `<option value="${i + 1}" ${i + 1 === s.fixedDay ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
             <div class="form-field"><label>Grupo de cocina</label><select id="edit-kitchen-input"><option value="k1" ${s.kitchenGroup === 'k1' ? 'selected' : ''}>Cocina</option><option value="k2" ${s.kitchenGroup === 'k2' ? 'selected' : ''}>Cocina 2</option></select></div>
           </div>
-        ` : `
-          <span class="student-name">${escapeHtml(s.name)}</span>
-          <div class="student-meta">${Core.DOW_NAMES_ES[s.fixedDay - 1]} · Grupo: ${kitchenLabel} · ${s.active ? 'Activo' : 'Inactivo'} · ${points} pts acumulados</div>
-          <div class="load-bar-track"><div class="load-bar-fill" style="width:${pct}%"></div></div>
         `;
-      const actions = editing ? `
+        const actions = `
           <button class="btn small" data-action="save-rename" data-id="${s.id}">Guardar</button>
           <button class="btn small secondary" data-action="cancel-rename" data-id="${s.id}">Cancelar</button>
-        ` : `
+        `;
+        return `<div class="student-row ${s.active ? '' : 'inactive'}" data-id="${s.id}">
+          <div class="student-main">${mainHtml}</div>
+          <div class="student-actions">${actions}</div>
+        </div>`;
+      }
+
+      const detailHtml = expanded ? `
+          <div class="student-meta">${Core.DOW_NAMES_ES[s.fixedDay - 1]} · Grupo: ${kitchenLabel} · ${s.active ? 'Activo' : 'Inactivo'} · ${points} pts acumulados</div>
+          <div class="load-bar-track"><div class="load-bar-fill" style="width:${pct}%"></div></div>
+        ` : '';
+      const actions = `
           <button class="btn small secondary" data-action="rename" data-id="${s.id}">Editar</button>
           <button class="btn small secondary" data-action="toggle-active" data-id="${s.id}">${s.active ? 'Desactivar' : 'Activar'}</button>
           <button class="btn small danger" data-action="delete" data-id="${s.id}">Eliminar</button>
         `;
       return `<div class="student-row ${s.active ? '' : 'inactive'}" data-id="${s.id}">
-        <div class="student-main">${mainHtml}</div>
+        <div class="student-main">
+          <button class="student-name-toggle" data-action="toggle-detail" data-id="${s.id}">
+            <span class="student-name">${escapeHtml(s.name)}</span>${tierBadge}
+          </button>
+          ${detailHtml}
+        </div>
         <div class="student-actions">${actions}</div>
       </div>`;
     }).join('');
@@ -352,7 +393,8 @@
         </div>
       </div>
       <div class="card">
-        <h2>Estudiantes (orden alfabético)</h2>
+        <h2>Estudiantes (mayor carga primero)</h2>
+        <p class="muted">Tocá un nombre para ver el detalle completo (día fijo, grupo, estado, puntos).</p>
         <div class="student-list">${rows || '<p class="empty-state">No hay estudiantes cargados.</p>'}</div>
       </div>
     `;
@@ -378,6 +420,7 @@
     showToast(`${name} agregado/a.`);
   }
 
+  function handleToggleDetail(id) { expandedStudentId = expandedStudentId === id ? null : id; renderEstudiantes(); }
   function handleRenameStart(id) { editingStudentId = id; renderEstudiantes(); }
   function handleRenameCancel() { editingStudentId = null; renderEstudiantes(); }
   function handleRenameSave(id) {
@@ -418,7 +461,7 @@
   }
 
   // -----------------------------------------------------------------
-  // Tab: Semanas guardadas
+  // Tab: Calendarios anteriores
   // -----------------------------------------------------------------
   function renderSemanas() {
     const el = document.getElementById('tab-semanas');
@@ -450,7 +493,7 @@
     }
 
     if (!state.lockedWeeks.length) {
-      el.innerHTML = `${equityHtml}<div class="empty-state">Todavía no hay semanas bloqueadas.</div>`;
+      el.innerHTML = `${equityHtml}<div class="empty-state">Todavía no hay calendarios anteriores.</div>`;
       return;
     }
 
@@ -466,7 +509,7 @@
           <div class="week-card-head"><h3>Editando: ${escapeHtml(label)}</h3><span class="muted">${dates}</span></div>
           <div class="alert warning">Estás editando una semana ya bloqueada — es una excepción manual explícita. Se guarda apenas confirmes.</div>
           <div class="audit-list">${renderAudit(audit)}</div>
-          ${renderEditableDays(editingWeekDraft, studentsById)}
+          ${renderEditableWeekGridTable(editingWeekDraft, studentsById)}
           <div class="btn-row">
             <button class="btn" data-action="save-edit-week">Guardar cambios</button>
             <button class="btn secondary" data-action="cancel-edit-week">Cancelar</button>
@@ -585,6 +628,7 @@
       const action = btn.dataset.action;
       const id = btn.dataset.id;
       if (action === 'add-student') handleAddStudent();
+      else if (action === 'toggle-detail') handleToggleDetail(id);
       else if (action === 'rename') handleRenameStart(id);
       else if (action === 'save-rename') handleRenameSave(id);
       else if (action === 'cancel-rename') handleRenameCancel();
