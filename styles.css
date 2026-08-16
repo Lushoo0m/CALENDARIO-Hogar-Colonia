@@ -221,9 +221,10 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
 .week-card { margin-bottom: 22px; }
 .week-card-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; flex-wrap: wrap; gap: 6px; }
 
-.empty-state { text-align: center; color: var(--muted); padding: 30px 10px; }
+.week-mini-list { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.week-mini { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--muted); }
 
-.equity-summary { margin-top: 26px; }
+.empty-state { text-align: center; color: var(--muted); padding: 30px 10px; }
 
 @media (max-width: 640px) {
   #app { padding: 16px 10px 60px; }

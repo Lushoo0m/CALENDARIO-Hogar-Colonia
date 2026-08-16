@@ -463,50 +463,56 @@
   // -----------------------------------------------------------------
   // Tab: Calendarios anteriores
   // -----------------------------------------------------------------
+  // Un mes se considera "completo" cuando llega hasta su última semana sin
+  // huecos entre medio — permite un arranque truncado (p.ej. un mes cuyo
+  // historial importado empieza recién en la semana 2) pero exige que no
+  // falte nada desde ahí hasta el final del mes.
+  function isMonthComplete(lockedWeeks, year, month) {
+    const weeks = Core.monthWeeks(year, month);
+    const lockedStarts = new Set(lockedWeeks.filter((w) => w.year === year && w.month === month).map((w) => w.startDate));
+    if (!lockedStarts.size) return false;
+    if (!lockedStarts.has(Core.toISO(weeks[weeks.length - 1].start))) return false;
+    const firstLockedIdx = weeks.findIndex((w) => lockedStarts.has(Core.toISO(w.start)));
+    return weeks.slice(firstLockedIdx).every((w) => lockedStarts.has(Core.toISO(w.start)));
+  }
+
+  function weeksOfMonthKey(monthKey) {
+    const [y, m] = monthKey.split('-').map(Number);
+    return state.lockedWeeks.filter((w) => w.year === y && w.month === m).sort((a, b) => (a.startDate < b.startDate ? -1 : 1));
+  }
+
   function renderSemanas() {
     const el = document.getElementById('tab-semanas');
-    const sortedAssignments = Core.allAssignmentsSorted(state.lockedWeeks);
-
-    const nameById = {};
-    state.lockedWeeks.forEach((w) => w.days.forEach((d) => d.assignments.forEach((a) => { nameById[a.studentId] = a.name; })));
-    state.students.forEach((s) => { nameById[s.id] = s.name; });
-    const ids = Object.keys(nameById).sort((a, b) => nameById[a].localeCompare(nameById[b], 'es'));
-
-    let equityHtml = '';
-    if (ids.length) {
-      const equityRows = ids.map((id) => {
-        const counts = Core.countsForStudent(sortedAssignments, id);
-        const total = Core.totalPointsForStudent(sortedAssignments, id);
-        const cells = Core.AREAS.map((ar) => `<td>${counts[ar.id]}</td>`).join('');
-        return `<tr><td>${escapeHtml(nameById[id])}</td>${cells}<td><strong>${total}</strong></td></tr>`;
-      }).join('');
-      equityHtml = `
-        <div class="card equity-summary">
-          <h2>Equidad acumulada</h2>
-          <p class="muted">Veces por área y puntaje total, acumulado desde el inicio del uso de la herramienta. Nunca se reinicia entre meses.</p>
-          <div class="table-wrap"><table>
-            <tr><th>Estudiante</th>${Core.AREAS.map((a) => `<th>${escapeHtml(a.label)}</th>`).join('')}<th>Puntos</th></tr>
-            ${equityRows}
-          </table></div>
-        </div>
-      `;
-    }
+    const studentsById = Object.fromEntries(state.students.map((s) => [s.id, s]));
 
     if (!state.lockedWeeks.length) {
-      el.innerHTML = `${equityHtml}<div class="empty-state">Todavía no hay calendarios anteriores.</div>`;
+      el.innerHTML = '<div class="empty-state">Todavía no hay calendarios anteriores.</div>';
       return;
     }
 
-    const weeksDesc = [...state.lockedWeeks].sort((a, b) => (a.startDate < b.startDate ? 1 : -1));
-    const studentsById = Object.fromEntries(state.students.map((s) => [s.id, s]));
-    const weekCards = weeksDesc.map((w) => {
-      const label = `Semana ${w.weekIndex} de ${Core.MONTH_NAMES_ES[w.month - 1]} ${w.year}`;
-      const dates = `${Core.formatDateEs(Core.fromISO(w.startDate))} – ${Core.formatDateEs(Core.fromISO(w.endDate))}`;
-      if (editingWeekStart === w.startDate) {
-        const historyExcludingThis = state.lockedWeeks.filter((x) => x.startDate !== w.startDate);
+    const monthKeys = [...new Set(state.lockedWeeks.map((w) => `${w.year}-${Core.pad2(w.month)}`))];
+    const completeMonths = monthKeys
+      .filter((key) => { const [y, m] = key.split('-').map(Number); return isMonthComplete(state.lockedWeeks, y, m); })
+      .sort().reverse();
+
+    if (!completeMonths.length) {
+      el.innerHTML = '<div class="empty-state">Todavía no hay ningún mes completo — los calendarios en curso se ven en la pestaña Generar. Un mes aparece acá recién cuando está bloqueado hasta el último día.</div>';
+      return;
+    }
+
+    const monthCards = completeMonths.map((key) => {
+      const [, m] = key.split('-').map(Number);
+      const weeksOfMonth = weeksOfMonthKey(key);
+      const y = weeksOfMonth[0].year;
+      const label = `${Core.MONTH_NAMES_ES[m - 1]} ${y}`;
+
+      const editingWeek = weeksOfMonth.find((w) => w.startDate === editingWeekStart);
+      if (editingWeek) {
+        const historyExcludingThis = state.lockedWeeks.filter((x) => x.startDate !== editingWeek.startDate);
         const audit = Core.auditWeek(state.students, historyExcludingThis, editingWeekDraft);
+        const weekLabel = `Semana ${editingWeek.weekIndex}`;
         return `<div class="week-card card">
-          <div class="week-card-head"><h3>Editando: ${escapeHtml(label)}</h3><span class="muted">${dates}</span></div>
+          <div class="week-card-head"><h3>${escapeHtml(label)} — editando ${escapeHtml(weekLabel)}</h3></div>
           <div class="alert warning">Estás editando una semana ya bloqueada — es una excepción manual explícita. Se guarda apenas confirmes.</div>
           <div class="audit-list">${renderAudit(audit)}</div>
           ${renderEditableWeekGridTable(editingWeekDraft, studentsById)}
@@ -516,18 +522,44 @@
           </div>
         </div>`;
       }
+
+      const mergedDays = weeksOfMonth.flatMap((w) => w.days);
+      const dateRange = `${Core.formatDateEs(Core.fromISO(weeksOfMonth[0].startDate))} – ${Core.formatDateEs(Core.fromISO(weeksOfMonth[weeksOfMonth.length - 1].endDate))}`;
+      const weekControls = weeksOfMonth.map((w) => `
+        <span class="week-mini">
+          Semana ${w.weekIndex}
+          <button class="btn small secondary" data-action="edit-week" data-start="${w.startDate}">Editar</button>
+          <button class="btn small danger" data-action="unlock-week" data-start="${w.startDate}">Desbloquear</button>
+        </span>
+      `).join('');
+
       return `<div class="week-card card">
         <div class="week-card-head">
           <h3>${escapeHtml(label)}</h3>
-          <span class="muted">${dates}</span>
-          <button class="btn small secondary" data-action="edit-week" data-start="${w.startDate}">Editar</button>
-          <button class="btn small secondary" data-action="print-week" data-start="${w.startDate}">PDF</button>
+          <span class="muted">${dateRange}</span>
+          <button class="btn small secondary" data-action="print-month" data-month-key="${key}">PDF del mes</button>
         </div>
-        ${renderWeekGridTable(w)}
+        ${renderWeekGridTable({ days: mergedDays })}
+        <div class="week-mini-list">${weekControls}</div>
       </div>`;
     }).join('');
 
-    el.innerHTML = equityHtml + weekCards;
+    el.innerHTML = monthCards;
+  }
+
+  function handleUnlockWeek(startDate) {
+    const week = state.lockedWeeks.find((w) => w.startDate === startDate);
+    if (!week) return;
+    const latest = [...state.lockedWeeks].sort((a, b) => (a.endDate < b.endDate ? 1 : -1))[0];
+    const message = latest.startDate === startDate
+      ? '¿Desbloquear esta semana? Vuelve a quedar pendiente en la pestaña Generar y la podés proponer de nuevo.'
+      : '¿Desbloquear esta semana? OJO: no es la última semana bloqueada — las semanas posteriores ya aprobadas no se recalculan solas y van a seguir basadas en el historial que tenían. Revisalas manualmente si hace falta.';
+    if (!confirm(message)) return;
+    state.lockedWeeks = state.lockedWeeks.filter((w) => w.startDate !== startDate);
+    if (editingWeekStart === startDate) { editingWeekStart = null; editingWeekDraft = null; }
+    saveState();
+    renderAll();
+    showToast('Semana desbloqueada.');
   }
 
   function handleEditWeekStart(startDate) {
@@ -565,22 +597,19 @@
   // vista limpia en #print-area y dispara window.print(); el usuario elige
   // "Guardar como PDF" en el diálogo de impresión.
   // -----------------------------------------------------------------
-  function renderPrintableWeek(w) {
-    const label = `Semana ${w.weekIndex} de ${Core.MONTH_NAMES_ES[w.month - 1]} ${w.year}`;
-    const dates = `${Core.formatDateEs(Core.fromISO(w.startDate))} – ${Core.formatDateEs(Core.fromISO(w.endDate))}`;
-    return `
+  function handlePrintMonth(monthKey) {
+    const weeksOfMonth = weeksOfMonthKey(monthKey);
+    if (!weeksOfMonth.length) return;
+    const [, m] = monthKey.split('-').map(Number);
+    const label = `${Core.MONTH_NAMES_ES[m - 1]} ${weeksOfMonth[0].year}`;
+    const mergedDays = weeksOfMonth.flatMap((w) => w.days);
+    const printArea = document.getElementById('print-area');
+    printArea.innerHTML = `
       <h1>Hogar Colonia — Calendario de limpieza</h1>
-      <h2>${escapeHtml(label)} (${dates})</h2>
-      ${renderWeekGridTable(w)}
+      <h2>${escapeHtml(label)}</h2>
+      ${renderWeekGridTable({ days: mergedDays })}
       <p class="print-footer">Generado ${new Date().toLocaleDateString('es-AR')}</p>
     `;
-  }
-
-  function handlePrintWeek(startDate) {
-    const week = state.lockedWeeks.find((w) => w.startDate === startDate);
-    if (!week) return;
-    const printArea = document.getElementById('print-area');
-    printArea.innerHTML = renderPrintableWeek(week);
     window.print();
   }
 
@@ -643,8 +672,9 @@
       const btn = e.target.closest('button[data-action]');
       if (!btn) return;
       const action = btn.dataset.action;
-      if (action === 'print-week') handlePrintWeek(btn.dataset.start);
+      if (action === 'print-month') handlePrintMonth(btn.dataset.monthKey);
       else if (action === 'edit-week') handleEditWeekStart(btn.dataset.start);
+      else if (action === 'unlock-week') handleUnlockWeek(btn.dataset.start);
       else if (action === 'save-edit-week') handleEditWeekSave();
       else if (action === 'cancel-edit-week') handleEditWeekCancel();
     });
