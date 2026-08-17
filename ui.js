@@ -129,8 +129,8 @@
   // Render compartido: grilla Día × Áreas (usada en la propuesta y en
   // las semanas guardadas — misma forma de datos en ambos casos)
   // -----------------------------------------------------------------
-  function weekGridHeaderHtml() {
-    return `<tr><th>Día</th>${Core.AREAS.map((a) => `<th>${escapeHtml(a.label)}</th>`).join('')}</tr>`;
+  function weekGridHeaderHtml(firstColLabel) {
+    return `<tr><th>${escapeHtml(firstColLabel || 'Día')}</th>${Core.AREAS.map((a) => `<th>${escapeHtml(a.label)}</th>`).join('')}</tr>`;
   }
 
   function weekDayRowsHtml(days) {
@@ -158,8 +158,15 @@
   // mes), tal cual corta el propio calendario. Usada en Calendarios
   // anteriores y en el PDF; la imagen descargable dibuja lo mismo a mano.
   function renderMonthGridTable(weeksOfMonth) {
-    const header = weekGridHeaderHtml();
-    const body = weeksOfMonth.map((week) => {
+    const [firstWeek, ...restWeeks] = weeksOfMonth;
+    if (!firstWeek) return '<div class="table-wrap"><table></table></div>';
+    // La primera semana no lleva su propio divisor "Semana N" — quedaría
+    // pegado justo debajo del encabezado, duplicando la fila de áreas. En
+    // su lugar, la celda "Día" del encabezado se reemplaza directamente
+    // por "Semana N" (el índice de la primera semana presente del mes,
+    // que no siempre es 1 — ej. un mes con historial incompleto al inicio).
+    const header = weekGridHeaderHtml(`Semana ${firstWeek.weekIndex}`);
+    const body = weekDayRowsHtml(firstWeek.days) + restWeeks.map((week) => {
       const areaCells = Core.AREAS.map((a) => `<td>${escapeHtml(a.label)}</td>`).join('');
       const divider = `<tr class="week-divider-row"><td>Semana ${week.weekIndex}</td>${areaCells}</tr>`;
       return divider + weekDayRowsHtml(week.days);
@@ -218,7 +225,7 @@
   // Único bloque con el switch de bloqueo/edición, reutilizado tanto para
   // "semana anterior" (junto a una propuesta en curso) como para la última
   // semana de un mes recién completado (pantalla de cierre de mes).
-  function renderPreviousWeekBlock(week) {
+  function renderPreviousWeekBlock(week, heading = 'Semana anterior') {
     if (!week) return '';
     const label = weekLongLabel(week);
     const editing = editingWeekStart === week.startDate;
@@ -234,9 +241,9 @@
       const ownAudit = Core.auditWeek(state.students, ownHistory, editingWeekDraft);
       return `
         <div class="card">
-          <div class="week-card-head"><h3>Semana anterior <span class="muted">— editando en simultáneo</span></h3>${toggle}</div>
+          <div class="week-card-head"><h3>${escapeHtml(heading)} <span class="muted">— editando en simultáneo</span></h3>${toggle}</div>
           <p class="muted">${escapeHtml(label)}</p>
-          <div class="alert warning">Estás editando la semana anterior mientras revisás la propuesta actual. Los cambios se guardan al volver a bloquear (switch), y ahí la propuesta de arriba se recalcula sola con el historial ya corregido.</div>
+          <div class="alert warning">Estás editando esta semana mientras revisás el resto. Los cambios se guardan al volver a bloquear (switch), y ahí se recalcula lo que dependa del historial nuevo.</div>
           <div class="audit-list">${renderAudit(ownAudit)}</div>
           ${renderEditableWeekGridTable(editingWeekDraft, studentsById, 'draft')}
           <div class="btn-row">
@@ -248,7 +255,7 @@
     return `
       <div class="card">
         <div class="week-card-head">
-          <h3>Semana anterior <span class="muted">(referencia — confirmá que nadie repite área)</span></h3>
+          <h3>${escapeHtml(heading)} <span class="muted">(referencia — confirmá que nadie repite área)</span></h3>
           ${toggle}
           <button class="btn small danger" data-action="delete-previous-week" data-start="${week.startDate}">Eliminar esta semana</button>
         </div>
@@ -329,16 +336,17 @@
         const weeksOfThatMonth = sortedLocked.filter((w) => w.year === lastLocked.year && w.month === lastLocked.month);
         const monthLabel = `${Core.MONTH_NAMES_ES[lastLocked.month - 1]} ${lastLocked.year}`;
         const nextLabel = `${Core.MONTH_NAMES_ES[weekInfo.month - 1]} ${weekInfo.year}`;
+        const editableWeeksHtml = weeksOfThatMonth.map((w) => renderPreviousWeekBlock(w, `Semana ${w.weekIndex}`)).join('');
         el.innerHTML = `
           <div class="card">
             <h2>${escapeHtml(monthLabel)} — mes completo</h2>
-            <p class="muted">Revisá el mes completo antes de pasar a ${escapeHtml(nextLabel)}. Si hace falta un último ajuste, usá el switch de la semana de abajo.</p>
+            <p class="muted">Revisá el mes completo antes de pasar a ${escapeHtml(nextLabel)}. Cualquier semana de abajo se puede editar con su switch si hace falta un último ajuste.</p>
             ${renderMonthGridTable(weeksOfThatMonth)}
             <div class="btn-row">
               <button class="btn" data-action="close-month" data-month-key="${closedKey}">Cerrar calendario mensual</button>
             </div>
           </div>
-          ${renderPreviousWeekBlock(lastLocked)}
+          ${editableWeeksHtml}
         `;
         return;
       }
@@ -836,7 +844,11 @@
 
     const dayColWidth = 148;
     const areaColWidth = 136;
-    const cols = [{ id: 'day', label: 'Día', width: dayColWidth }]
+    // La primera semana no lleva divisor propio (quedaría pegado debajo
+    // del encabezado, duplicando la fila de áreas) — su número va directo
+    // en la celda "Día" del encabezado, igual que en la vista HTML.
+    const firstWeekIndex = weeksOfMonth[0] ? weeksOfMonth[0].weekIndex : 1;
+    const cols = [{ id: 'day', label: `Semana ${firstWeekIndex}`, width: dayColWidth }]
       .concat(Core.AREAS.map((a) => ({ id: a.id, label: a.label, width: areaColWidth })));
     const tableWidth = cols.reduce((sum, c) => sum + c.width, 0);
 
@@ -847,7 +859,7 @@
     const footerH = 26;
     const pad = 22;
     const width = tableWidth + pad * 2;
-    const height = titleH + headerH + weeksOfMonth.length * dividerH + totalDays * rowH + footerH + pad * 2;
+    const height = titleH + headerH + Math.max(0, weeksOfMonth.length - 1) * dividerH + totalDays * rowH + footerH + pad * 2;
 
     const SCALE = 2;
     const canvas = document.createElement('canvas');
@@ -883,20 +895,22 @@
     });
     y += headerH;
 
-    weeksOfMonth.forEach((week) => {
-      ctx.fillStyle = PANEL2;
-      ctx.fillRect(pad, y, tableWidth, dividerH);
-      ctx.strokeStyle = BORDER;
-      ctx.strokeRect(pad + 0.5, y + 0.5, tableWidth - 1, dividerH - 1);
-      let dx = pad;
-      ctx.font = `700 10px ${IMG_FONT}`;
-      cols.forEach((c, i) => {
-        ctx.fillStyle = i === 0 ? TEXT : MUTED;
-        const label = i === 0 ? `SEMANA ${week.weekIndex}` : c.label.toUpperCase();
-        ctx.fillText(label, dx + 10, y + dividerH / 2 + 1);
-        dx += c.width;
-      });
-      y += dividerH;
+    weeksOfMonth.forEach((week, weekPos) => {
+      if (weekPos > 0) {
+        ctx.fillStyle = PANEL2;
+        ctx.fillRect(pad, y, tableWidth, dividerH);
+        ctx.strokeStyle = BORDER;
+        ctx.strokeRect(pad + 0.5, y + 0.5, tableWidth - 1, dividerH - 1);
+        let dx = pad;
+        ctx.font = `700 10px ${IMG_FONT}`;
+        cols.forEach((c, i) => {
+          ctx.fillStyle = i === 0 ? TEXT : MUTED;
+          const label = i === 0 ? `SEMANA ${week.weekIndex}` : c.label.toUpperCase();
+          ctx.fillText(label, dx + 10, y + dividerH / 2 + 1);
+          dx += c.width;
+        });
+        y += dividerH;
+      }
 
       week.days.forEach((day) => {
         const cellByArea = {};
