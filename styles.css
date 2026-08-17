@@ -205,9 +205,6 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
   font-family: inherit; color: inherit;
 }
 .student-name { font-weight: 600; }
-.student-meta { color: var(--muted); font-size: 0.78rem; margin-top: 6px; }
-.load-bar-track { background: #10121a; border-radius: 999px; height: 6px; margin-top: 6px; overflow: hidden; }
-.load-bar-fill { height: 100%; background: var(--accent); border-radius: 999px; }
 .student-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 0.7rem; border: 1px solid var(--border); color: var(--muted); }
@@ -217,6 +214,18 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
 .tier-badge.tier-mid { color: #e8caa0; border-color: #4a3d20; background: var(--warning-bg); }
 .tier-badge.tier-low { color: #b3d9bc; border-color: #2c4534; background: var(--ok-bg); }
 .tier-badge.inactive { color: var(--muted); }
+
+/* Detalle desplegable de un estudiante (click en el nombre) */
+.student-detail { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.detail-fullname { font-size: 0.88rem; font-weight: 600; margin-bottom: 8px; }
+.sex-symbol { color: var(--muted); font-weight: 400; }
+.detail-tags { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.kitchen-tag { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.03em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
+/* Puntos: colores invertidos respecto al badge de carga (más puntos = verde) */
+.points-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; border: 1px solid var(--border); }
+.points-badge.tier-high { color: #b3d9bc; border-color: #2c4534; background: var(--ok-bg); }
+.points-badge.tier-mid { color: #e8caa0; border-color: #4a3d20; background: var(--warning-bg); }
+.points-badge.tier-low { color: #edb7bf; border-color: #4a2830; background: var(--danger-bg); }
 
 /* Switch deslizable de bloqueo/desbloqueo (semana anterior en Generar) */
 .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }

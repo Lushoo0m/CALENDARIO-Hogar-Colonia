@@ -44,33 +44,35 @@
 
   // Roster inicial: 20 estudiantes, día fijo (1=Lunes..7=Domingo) y grupo de cocina.
   // k2 = solo puede limpiar Cocina 2 (nunca Cocina 1). k1 = el resto (nunca Cocina 2).
+  // sex: 'M' (varón) / 'F' (mujer). fullName: nombre y apellido completo (Encomiendas
+  // Núñez); name es el nombre corto que se usa en la grilla del calendario.
   const INITIAL_STUDENTS = [
-    { id: 'darhian', name: 'Darhian', fixedDay: 1, kitchenGroup: 'k1', active: true },
-    { id: 'lorenzo-c', name: 'Lorenzo C.', fixedDay: 1, kitchenGroup: 'k1', active: true },
-    { id: 'pablo', name: 'Pablo', fixedDay: 1, kitchenGroup: 'k1', active: true },
+    { id: 'darhian', name: 'Darhian', fullName: 'Darhian Martín Torres Galardi', sex: 'M', fixedDay: 1, kitchenGroup: 'k1', active: true },
+    { id: 'lorenzo-c', name: 'Lorenzo C.', fullName: 'Lorenzo Coimbra Rodríguez', sex: 'M', fixedDay: 1, kitchenGroup: 'k1', active: true },
+    { id: 'pablo', name: 'Pablo', fullName: 'Pablo', sex: null, fixedDay: 1, kitchenGroup: 'k1', active: true },
 
-    { id: 'joaquin', name: 'Joaquín', fixedDay: 2, kitchenGroup: 'k1', active: true },
-    { id: 'florencia', name: 'Florencia', fixedDay: 2, kitchenGroup: 'k1', active: true },
-    { id: 'gaston', name: 'Gastón', fixedDay: 2, kitchenGroup: 'k2', active: true },
+    { id: 'joaquin', name: 'Joaquín', fullName: 'Joaquín Techera Duarte', sex: 'M', fixedDay: 2, kitchenGroup: 'k1', active: true },
+    { id: 'florencia', name: 'Florencia', fullName: 'Keyt Florencia Acuña Camargo', sex: 'F', fixedDay: 2, kitchenGroup: 'k1', active: true },
+    { id: 'gaston', name: 'Gastón', fullName: 'Lucas Gastón Acuña Márquez', sex: 'M', fixedDay: 2, kitchenGroup: 'k2', active: true },
 
-    { id: 'fernanda', name: 'Fernanda', fixedDay: 3, kitchenGroup: 'k1', active: true },
-    { id: 'lautaro', name: 'Lautaro', fixedDay: 3, kitchenGroup: 'k2', active: true },
-    { id: 'anthony', name: 'Anthony', fixedDay: 3, kitchenGroup: 'k2', active: true },
+    { id: 'fernanda', name: 'Fernanda', fullName: 'Fernanda Patiño Hernández', sex: 'F', fixedDay: 3, kitchenGroup: 'k1', active: true },
+    { id: 'lautaro', name: 'Lautaro', fullName: 'Lautaro Germán Taborda Taborda', sex: 'M', fixedDay: 3, kitchenGroup: 'k2', active: true },
+    { id: 'anthony', name: 'Anthony', fullName: 'Anthony Nahuel Correa Buzó', sex: 'M', fixedDay: 3, kitchenGroup: 'k2', active: true },
 
-    { id: 'nadia', name: 'Nadia', fixedDay: 4, kitchenGroup: 'k1', active: true },
-    { id: 'romina', name: 'Romina', fixedDay: 4, kitchenGroup: 'k1', active: true },
-    { id: 'lucas-bz', name: 'Lucas Bz.', fixedDay: 4, kitchenGroup: 'k2', active: true },
+    { id: 'nadia', name: 'Nadia', fullName: 'Nadia Sofía Hernández Bertoche', sex: 'F', fixedDay: 4, kitchenGroup: 'k1', active: true },
+    { id: 'romina', name: 'Romina', fullName: 'Romina Tahiná Moreira González', sex: 'F', fixedDay: 4, kitchenGroup: 'k1', active: true },
+    { id: 'lucas-bz', name: 'Lucas Bz.', fullName: 'Lucas Rafael Buzó Oxley', sex: 'M', fixedDay: 4, kitchenGroup: 'k2', active: true },
 
-    { id: 'soledad', name: 'Soledad', fixedDay: 5, kitchenGroup: 'k1', active: true },
-    { id: 'lorenzo-g', name: 'Lorenzo G.', fixedDay: 5, kitchenGroup: 'k2', active: true },
+    { id: 'soledad', name: 'Soledad', fullName: 'Noelia Soledad Gallo Pinto', sex: 'F', fixedDay: 5, kitchenGroup: 'k1', active: true },
+    { id: 'lorenzo-g', name: 'Lorenzo G.', fullName: 'Lorenzo González Márquez', sex: 'M', fixedDay: 5, kitchenGroup: 'k2', active: true },
 
-    { id: 'kathleen', name: 'Kathleen', fixedDay: 6, kitchenGroup: 'k1', active: true },
-    { id: 'paula', name: 'Paula', fixedDay: 6, kitchenGroup: 'k1', active: true },
-    { id: 'lucas-brs', name: 'Lucas Brs.', fixedDay: 6, kitchenGroup: 'k2', active: true },
+    { id: 'kathleen', name: 'Kathleen', fullName: 'Kathleen Aylin Sosa Antúnez', sex: 'F', fixedDay: 6, kitchenGroup: 'k1', active: true },
+    { id: 'paula', name: 'Paula', fullName: 'Paula Micaela Rosas Aire', sex: 'F', fixedDay: 6, kitchenGroup: 'k1', active: true },
+    { id: 'lucas-brs', name: 'Lucas Brs.', fullName: 'Lucas Brasesco González', sex: 'M', fixedDay: 6, kitchenGroup: 'k2', active: true },
 
-    { id: 'natasha', name: 'Natasha', fixedDay: 7, kitchenGroup: 'k1', active: true },
-    { id: 'luana-r', name: 'Luana R.', fixedDay: 7, kitchenGroup: 'k1', active: true },
-    { id: 'vitorio', name: 'Vitorio', fixedDay: 7, kitchenGroup: 'k2', active: true },
+    { id: 'natasha', name: 'Natasha', fullName: 'Carmen Natasha Silvera Ramos', sex: 'F', fixedDay: 7, kitchenGroup: 'k1', active: true },
+    { id: 'luana-r', name: 'Luana R.', fullName: 'Luana R.', sex: null, fixedDay: 7, kitchenGroup: 'k1', active: true },
+    { id: 'vitorio', name: 'Vitorio', fullName: 'Vitorio', sex: null, fixedDay: 7, kitchenGroup: 'k2', active: true },
   ];
 
   // ---------------------------------------------------------------------

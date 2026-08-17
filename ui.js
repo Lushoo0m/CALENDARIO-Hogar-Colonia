@@ -218,7 +218,11 @@
         } else {
           previousBlock = `
             <div class="card">
-              <div class="week-card-head"><h3>Semana anterior <span class="muted">(referencia — confirmá que nadie repite área)</span></h3>${toggle}</div>
+              <div class="week-card-head">
+                <h3>Semana anterior <span class="muted">(referencia — confirmá que nadie repite área)</span></h3>
+                ${toggle}
+                <button class="btn small danger" data-action="delete-previous-week" data-start="${previousWeek.startDate}">Eliminar esta semana</button>
+              </div>
               <p class="muted">${escapeHtml(previousLabel)}</p>
               ${renderWeekGridTable(previousWeek)}
             </div>`;
@@ -352,6 +356,8 @@
   // Tab: Estudiantes
   // -----------------------------------------------------------------
   const TIER_LABELS = { high: 'Carga alta', mid: 'Carga media', low: 'Carga baja' };
+  function kitchenGroupLabel(s) { return s.kitchenGroup === 'k2' ? 'COCINA II' : 'COCINA'; }
+  function sexSymbol(sex) { return sex === 'M' ? '♂' : sex === 'F' ? '♀' : ''; }
 
   function renderEstudiantes() {
     const el = document.getElementById('tab-estudiantes');
@@ -372,10 +378,8 @@
 
     const rows = sortedStudents.map((s) => {
       const points = Core.totalPointsForStudent(sortedAssignments, s.id);
-      const pct = Math.round((points / maxPoints) * 100);
       const editing = editingStudentId === s.id;
       const expanded = expandedStudentId === s.id;
-      const kitchenLabel = s.kitchenGroup === 'k2' ? 'Cocina 2' : 'Cocina';
       const tier = tierOf[s.id];
       const tierBadge = !s.active
         ? '<span class="tier-badge inactive">Inactivo</span>'
@@ -383,10 +387,14 @@
 
       if (editing) {
         const mainHtml = `
-          <input type="text" id="edit-name-input" value="${escapeHtml(s.name)}">
+          <div class="form-row">
+            <div class="form-field"><label>Nombre corto (calendario)</label><input type="text" id="edit-name-input" value="${escapeHtml(s.name)}"></div>
+            <div class="form-field"><label>Nombre completo</label><input type="text" id="edit-fullname-input" value="${escapeHtml(s.fullName || s.name)}"></div>
+          </div>
           <div class="form-row" style="margin-top:8px;">
+            <div class="form-field"><label>Sexo</label><select id="edit-sex-input"><option value="M" ${s.sex === 'M' ? 'selected' : ''}>Varón</option><option value="F" ${s.sex === 'F' ? 'selected' : ''}>Mujer</option></select></div>
             <div class="form-field"><label>Día fijo</label><select id="edit-day-input">${Core.DOW_NAMES_ES.map((d, i) => `<option value="${i + 1}" ${i + 1 === s.fixedDay ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
-            <div class="form-field"><label>Grupo de cocina</label><select id="edit-kitchen-input"><option value="k1" ${s.kitchenGroup === 'k1' ? 'selected' : ''}>Cocina</option><option value="k2" ${s.kitchenGroup === 'k2' ? 'selected' : ''}>Cocina 2</option></select></div>
+            <div class="form-field"><label>Grupo de cocina</label><select id="edit-kitchen-input"><option value="k1" ${s.kitchenGroup === 'k1' ? 'selected' : ''}>Cocina</option><option value="k2" ${s.kitchenGroup === 'k2' ? 'selected' : ''}>Cocina II</option></select></div>
           </div>
         `;
         const actions = `
@@ -400,13 +408,18 @@
       }
 
       const detailHtml = expanded ? `
-          <div class="student-meta">${Core.DOW_NAMES_ES[s.fixedDay - 1]} · Grupo: ${kitchenLabel} · ${s.active ? 'Activo' : 'Inactivo'} · ${points} pts acumulados</div>
-          <div class="load-bar-track"><div class="load-bar-fill" style="width:${pct}%"></div></div>
+          <div class="student-detail">
+            <div class="detail-fullname">${escapeHtml(s.fullName || s.name)} <span class="sex-symbol">${sexSymbol(s.sex)}</span></div>
+            <div class="detail-tags">
+              <span class="day-pill dow-${s.fixedDay}">${Core.DOW_NAMES_ES[s.fixedDay - 1]}</span>
+              <span class="kitchen-tag">${kitchenGroupLabel(s)}</span>
+              <span class="points-badge tier-${tier || 'low'}">${points} pts</span>
+            </div>
+          </div>
         ` : '';
       const actions = `
           <button class="btn small secondary" data-action="rename" data-id="${s.id}">Editar</button>
-          <button class="btn small secondary" data-action="toggle-active" data-id="${s.id}">${s.active ? 'Desactivar' : 'Activar'}</button>
-          <button class="btn small danger" data-action="delete" data-id="${s.id}">Eliminar</button>
+          <button class="btn small danger" data-action="delete" data-id="${s.id}">Quitar beca</button>
         `;
       return `<div class="student-row ${s.active ? '' : 'inactive'}" data-id="${s.id}">
         <div class="student-main">
@@ -423,15 +436,17 @@
       <div class="card">
         <h2>Nuevo estudiante</h2>
         <div class="form-row">
-          <div class="form-field"><label>Nombre</label><input type="text" id="new-student-name" placeholder="Nombre y apellido"></div>
+          <div class="form-field"><label>Nombre corto (calendario)</label><input type="text" id="new-student-name" placeholder="Ej. Lorenzo C."></div>
+          <div class="form-field"><label>Nombre completo</label><input type="text" id="new-student-fullname" placeholder="Nombre y apellido"></div>
+          <div class="form-field"><label>Sexo</label><select id="new-student-sex"><option value="M">Varón</option><option value="F">Mujer</option></select></div>
           <div class="form-field"><label>Día fijo</label><select id="new-student-day">${dayOptions}</select></div>
-          <div class="form-field"><label>Grupo de cocina</label><select id="new-student-kitchen"><option value="k1">Cocina</option><option value="k2">Cocina 2</option></select></div>
+          <div class="form-field"><label>Grupo de cocina</label><select id="new-student-kitchen"><option value="k1">Cocina</option><option value="k2">Cocina II</option></select></div>
           <button class="btn" data-action="add-student">Agregar</button>
         </div>
       </div>
       <div class="card">
         <h2>Estudiantes (mayor carga primero)</h2>
-        <p class="muted">Tocá un nombre para ver el detalle completo (día fijo, grupo, estado, puntos).</p>
+        <p class="muted">Tocá un nombre para ver el detalle completo (nombre completo, sexo, día, grupo, puntos).</p>
         <div class="student-list">${rows || '<p class="empty-state">No hay estudiantes cargados.</p>'}</div>
       </div>
     `;
@@ -439,6 +454,8 @@
 
   function handleAddStudent() {
     const nameInput = document.getElementById('new-student-name');
+    const fullNameInput = document.getElementById('new-student-fullname');
+    const sexSelect = document.getElementById('new-student-sex');
     const daySelect = document.getElementById('new-student-day');
     const kitchenSelect = document.getElementById('new-student-kitchen');
     const name = nameInput.value.trim();
@@ -447,6 +464,8 @@
     state.students.push({
       id,
       name,
+      fullName: fullNameInput.value.trim() || name,
+      sex: sexSelect.value,
       fixedDay: Number(daySelect.value),
       kitchenGroup: kitchenSelect.value,
       active: true,
@@ -462,6 +481,8 @@
   function handleRenameCancel() { editingStudentId = null; renderEstudiantes(); }
   function handleRenameSave(id) {
     const nameInput = document.getElementById('edit-name-input');
+    const fullNameInput = document.getElementById('edit-fullname-input');
+    const sexInput = document.getElementById('edit-sex-input');
     const dayInput = document.getElementById('edit-day-input');
     const kitchenInput = document.getElementById('edit-kitchen-input');
     const name = nameInput.value.trim();
@@ -469,6 +490,8 @@
     const student = state.students.find((s) => s.id === id);
     if (student) {
       student.name = name;
+      student.fullName = fullNameInput.value.trim() || name;
+      student.sex = sexInput.value;
       student.fixedDay = Number(dayInput.value);
       student.kitchenGroup = kitchenInput.value;
     }
@@ -478,18 +501,10 @@
     renderGenerar();
     showToast('Estudiante actualizado.');
   }
-  function handleToggleActive(id) {
-    const student = state.students.find((s) => s.id === id);
-    if (!student) return;
-    student.active = !student.active;
-    saveState();
-    renderEstudiantes();
-    renderGenerar();
-  }
   function handleDeleteStudent(id) {
     const student = state.students.find((s) => s.id === id);
     if (!student) return;
-    if (!confirm(`¿Eliminar definitivamente a ${student.name}? Su historial en semanas ya bloqueadas se conserva, pero dejará de aparecer en el calendario.`)) return;
+    if (!confirm(`¿Quitar la beca a ${student.name}? Esta acción no se puede deshacer. Su historial en semanas ya bloqueadas se conserva, pero dejará de aparecer en el calendario.`)) return;
     state.students = state.students.filter((s) => s.id !== id);
     if (editingStudentId === id) editingStudentId = null;
     saveState();
@@ -711,6 +726,7 @@
       else if (action === 'approve') handleApproveClick();
       else if (action === 'confirm-previous-week') handleConfirmPreviousWeekEdit();
       else if (action === 'cancel-edit-week') handleEditWeekCancel();
+      else if (action === 'delete-previous-week') handleUnlockWeek(btn.dataset.start);
     });
     el.addEventListener('change', (e) => {
       if (e.target.id === 'start-month-input') handleStartMonthChange(e.target);
@@ -736,7 +752,6 @@
       else if (action === 'rename') handleRenameStart(id);
       else if (action === 'save-rename') handleRenameSave(id);
       else if (action === 'cancel-rename') handleRenameCancel();
-      else if (action === 'toggle-active') handleToggleActive(id);
       else if (action === 'delete') handleDeleteStudent(id);
     });
   }
