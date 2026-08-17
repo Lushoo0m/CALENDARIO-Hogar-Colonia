@@ -137,6 +137,18 @@ th, td {
 th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; background: var(--panel-2); }
 .table-wrap { overflow-x: auto; }
 
+tr.week-divider-row td {
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 10px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
 tr.dow-1 td:first-child, tr.dow-1 { background: color-mix(in srgb, var(--dow-1) 55%, transparent); }
 tr.dow-2 { background: color-mix(in srgb, var(--dow-2) 55%, transparent); }
 tr.dow-3 { background: color-mix(in srgb, var(--dow-3) 55%, transparent); }
@@ -320,6 +332,7 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
   #print-area tr.dow-5 { background: color-mix(in srgb, var(--dow-5) 55%, transparent); }
   #print-area tr.dow-6 { background: color-mix(in srgb, var(--dow-6) 55%, transparent); }
   #print-area tr.dow-7 { background: color-mix(in srgb, var(--dow-7) 55%, transparent); }
+  #print-area tr.week-divider-row td { background: var(--panel-2); color: var(--muted); }
   #print-area .day-pill { color: var(--text); }
   #print-area .muted { color: var(--muted); }
   #print-area .print-footer { margin-top: 14px; font-size: 0.72rem; color: var(--muted); }

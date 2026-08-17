@@ -127,9 +127,12 @@
   // Render compartido: grilla Día × Áreas (usada en la propuesta y en
   // las semanas guardadas — misma forma de datos en ambos casos)
   // -----------------------------------------------------------------
-  function renderWeekGridTable(weekLike) {
-    const header = `<tr><th>Día</th>${Core.AREAS.map((a) => `<th>${escapeHtml(a.label)}</th>`).join('')}</tr>`;
-    const rows = weekLike.days.map((day) => {
+  function weekGridHeaderHtml() {
+    return `<tr><th>Día</th>${Core.AREAS.map((a) => `<th>${escapeHtml(a.label)}</th>`).join('')}</tr>`;
+  }
+
+  function weekDayRowsHtml(days) {
+    return days.map((day) => {
       const cellByArea = {};
       day.assignments.forEach((a) => {
         const existing = cellByArea[a.area];
@@ -139,7 +142,27 @@
       const cells = Core.AREAS.map((ar) => `<td>${cellByArea[ar.id] || '<span class="muted">—</span>'}</td>`).join('');
       return `<tr class="dow-${day.dow}"><td><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)}</td>${cells}</tr>`;
     }).join('');
+  }
+
+  function renderWeekGridTable(weekLike) {
+    const header = weekGridHeaderHtml();
+    const rows = weekDayRowsHtml(weekLike.days);
     return `<div class="table-wrap"><table><thead>${header}</thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  // Vista de un mes completo: varias semanas (Core.monthWeeks) una debajo de
+  // otra, separadas por una fila fina "Semana N" — cada semana va del
+  // primer día del mes (o lunes) hasta el domingo (o el último día del
+  // mes), tal cual corta el propio calendario. Usada en Calendarios
+  // anteriores y en el PDF; la imagen descargable dibuja lo mismo a mano.
+  function renderMonthGridTable(weeksOfMonth) {
+    const header = weekGridHeaderHtml();
+    const colspan = Core.AREAS.length + 1;
+    const body = weeksOfMonth.map((week) => {
+      const divider = `<tr class="week-divider-row"><td colspan="${colspan}">Semana ${week.weekIndex}</td></tr>`;
+      return divider + weekDayRowsHtml(week.days);
+    }).join('');
+    return `<div class="table-wrap"><table><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
   }
 
   function renderAudit(audit) {
@@ -563,7 +586,7 @@
 
       const bodyHtml = isOpen ? `
         <div class="month-card-body">
-          ${renderWeekGridTable({ days: weeksOfMonth.flatMap((w) => w.days) })}
+          ${renderMonthGridTable(weeksOfMonth)}
           <div class="btn-row">
             <button class="btn small secondary" data-action="print-month" data-month-key="${key}">
               <svg class="icon-download" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 1a1 1 0 0 1 1 1v6.086l1.793-1.793a1 1 0 1 1 1.414 1.414l-3.5 3.5a1 1 0 0 1-1.414 0l-3.5-3.5a1 1 0 1 1 1.414-1.414L7 8.086V2a1 1 0 0 1 1-1zM2 12a1 1 0 0 1 1 1v1h10v-1a1 1 0 1 1 2 0v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2v-1a1 1 0 0 1 1-1z"/></svg>
@@ -682,12 +705,11 @@
     if (!weeksOfMonth.length) return;
     const [, m] = monthKey.split('-').map(Number);
     const label = `${Core.MONTH_NAMES_ES[m - 1]} ${weeksOfMonth[0].year}`;
-    const mergedDays = weeksOfMonth.flatMap((w) => w.days);
     const printArea = document.getElementById('print-area');
     printArea.innerHTML = `
       <h1>Hogar Colonia — Calendario de limpieza</h1>
       <h2>${escapeHtml(label)}</h2>
-      ${renderWeekGridTable({ days: mergedDays })}
+      ${renderMonthGridTable(weeksOfMonth)}
       <p class="print-footer">Generado ${new Date().toLocaleDateString('es-AR')}</p>
     `;
     window.print();
@@ -729,7 +751,7 @@
     if (!weeksOfMonth.length) return null;
     const [, m] = monthKey.split('-').map(Number);
     const label = `${Core.MONTH_NAMES_ES[m - 1]} ${weeksOfMonth[0].year}`;
-    const mergedDays = weeksOfMonth.flatMap((w) => w.days);
+    const totalDays = weeksOfMonth.reduce((sum, w) => sum + w.days.length, 0);
 
     const BG = '#14151a';
     const PANEL2 = '#21232c';
@@ -745,11 +767,12 @@
 
     const headerH = 34;
     const rowH = 32;
+    const dividerH = 22;
     const titleH = 66;
     const footerH = 26;
     const pad = 22;
     const width = tableWidth + pad * 2;
-    const height = titleH + headerH + mergedDays.length * rowH + footerH + pad * 2;
+    const height = titleH + headerH + weeksOfMonth.length * dividerH + totalDays * rowH + footerH + pad * 2;
 
     const SCALE = 2;
     const canvas = document.createElement('canvas');
@@ -785,52 +808,63 @@
     });
     y += headerH;
 
-    mergedDays.forEach((day) => {
-      const cellByArea = {};
-      day.assignments.forEach((a) => {
-        const existing = cellByArea[a.area];
-        cellByArea[a.area] = existing ? `${existing}, ${a.name}` : a.name;
-      });
-
-      ctx.fillStyle = DOW_COLORS[day.dow];
-      ctx.globalAlpha = 0.55;
-      ctx.fillRect(pad, y, tableWidth, rowH);
-      ctx.globalAlpha = 1;
+    weeksOfMonth.forEach((week) => {
+      ctx.fillStyle = PANEL2;
+      ctx.fillRect(pad, y, tableWidth, dividerH);
       ctx.strokeStyle = BORDER;
-      ctx.strokeRect(pad + 0.5, y + 0.5, tableWidth - 1, rowH - 1);
+      ctx.strokeRect(pad + 0.5, y + 0.5, tableWidth - 1, dividerH - 1);
+      ctx.fillStyle = MUTED;
+      ctx.font = `700 10px ${IMG_FONT}`;
+      ctx.fillText(`SEMANA ${week.weekIndex}`, pad + 10, y + dividerH / 2 + 1);
+      y += dividerH;
 
-      let cx = pad;
-      const dateObj = Core.fromISO(day.date);
-      const dowLabel = Core.DOW_NAMES_ES[day.dow - 1];
-      const dateLabel = Core.formatDateEs(dateObj);
+      week.days.forEach((day) => {
+        const cellByArea = {};
+        day.assignments.forEach((a) => {
+          const existing = cellByArea[a.area];
+          cellByArea[a.area] = existing ? `${existing}, ${a.name}` : a.name;
+        });
 
-      ctx.font = `700 10.5px ${IMG_FONT}`;
-      const pillPadX = 7;
-      const pillH = 18;
-      const pillW = ctx.measureText(dowLabel).width + pillPadX * 2;
-      const pillX = cx + 8;
-      const pillY = y + rowH / 2 - pillH / 2;
-      ctx.fillStyle = DOW_COLORS[day.dow];
-      roundRectPath(ctx, pillX, pillY, pillW, pillH, 999);
-      ctx.fill();
-      ctx.fillStyle = TEXT;
-      ctx.fillText(dowLabel, pillX + pillPadX, pillY + pillH / 2 + 1);
+        ctx.fillStyle = DOW_COLORS[day.dow];
+        ctx.globalAlpha = 0.55;
+        ctx.fillRect(pad, y, tableWidth, rowH);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = BORDER;
+        ctx.strokeRect(pad + 0.5, y + 0.5, tableWidth - 1, rowH - 1);
 
-      ctx.font = `400 11.5px ${IMG_FONT}`;
-      ctx.fillStyle = TEXT;
-      ctx.fillText(dateLabel, pillX + pillW + 8, y + rowH / 2 + 1);
+        let cx = pad;
+        const dateObj = Core.fromISO(day.date);
+        const dowLabel = Core.DOW_NAMES_ES[day.dow - 1];
+        const dateLabel = Core.formatDateEs(dateObj);
 
-      cx += dayColWidth;
-      Core.AREAS.forEach((ar) => {
-        const text = cellByArea[ar.id] || '—';
-        const maxTextWidth = areaColWidth - 16;
-        fitFontSize(ctx, text, maxTextWidth, '400', 12);
-        ctx.fillStyle = text === '—' ? MUTED : TEXT;
-        ctx.fillText(text, cx + 10, y + rowH / 2 + 1);
-        cx += areaColWidth;
+        ctx.font = `700 10.5px ${IMG_FONT}`;
+        const pillPadX = 7;
+        const pillH = 18;
+        const pillW = ctx.measureText(dowLabel).width + pillPadX * 2;
+        const pillX = cx + 8;
+        const pillY = y + rowH / 2 - pillH / 2;
+        ctx.fillStyle = DOW_COLORS[day.dow];
+        roundRectPath(ctx, pillX, pillY, pillW, pillH, 999);
+        ctx.fill();
+        ctx.fillStyle = TEXT;
+        ctx.fillText(dowLabel, pillX + pillPadX, pillY + pillH / 2 + 1);
+
+        ctx.font = `400 11.5px ${IMG_FONT}`;
+        ctx.fillStyle = TEXT;
+        ctx.fillText(dateLabel, pillX + pillW + 8, y + rowH / 2 + 1);
+
+        cx += dayColWidth;
+        Core.AREAS.forEach((ar) => {
+          const text = cellByArea[ar.id] || '—';
+          const maxTextWidth = areaColWidth - 16;
+          fitFontSize(ctx, text, maxTextWidth, '400', 12);
+          ctx.fillStyle = text === '—' ? MUTED : TEXT;
+          ctx.fillText(text, cx + 10, y + rowH / 2 + 1);
+          cx += areaColWidth;
+        });
+
+        y += rowH;
       });
-
-      y += rowH;
     });
 
     ctx.fillStyle = MUTED;
