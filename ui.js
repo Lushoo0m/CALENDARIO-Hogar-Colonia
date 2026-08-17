@@ -409,7 +409,7 @@
 
       const detailHtml = expanded ? `
           <div class="student-detail">
-            <div class="detail-fullname">${escapeHtml(s.fullName || s.name)} <span class="sex-symbol">${sexSymbol(s.sex)}</span></div>
+            <div class="detail-fullname">${escapeHtml(s.fullName || s.name)} <span class="sex-symbol sex-${s.sex || 'na'}">${sexSymbol(s.sex)}</span></div>
             <div class="detail-tags">
               <span class="day-pill dow-${s.fixedDay}">${Core.DOW_NAMES_ES[s.fixedDay - 1]}</span>
               <span class="kitchen-tag">${kitchenGroupLabel(s)}</span>

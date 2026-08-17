@@ -218,7 +218,10 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
 /* Detalle desplegable de un estudiante (click en el nombre) */
 .student-detail { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
 .detail-fullname { font-size: 0.88rem; font-weight: 600; margin-bottom: 8px; }
-.sex-symbol { color: var(--muted); font-weight: 400; }
+.sex-symbol { font-weight: 700; }
+.sex-symbol.sex-M { color: #7ec8e3; }
+.sex-symbol.sex-F { color: #f0a8c4; }
+.sex-symbol.sex-na { color: var(--muted); }
 .detail-tags { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .kitchen-tag { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.03em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
 /* Puntos: colores invertidos respecto al badge de carga (más puntos = verde) */
