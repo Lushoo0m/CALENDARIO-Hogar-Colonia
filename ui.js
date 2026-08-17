@@ -18,6 +18,7 @@
   let expandedStudentId = null;
   let editingWeekStart = null;
   let editingWeekDraft = null;
+  let expandedMonthKey = null;
 
   function defaultState() {
     return {
@@ -557,46 +558,39 @@
       const weeksOfMonth = weeksOfMonthKey(key);
       const y = weeksOfMonth[0].year;
       const label = `${Core.MONTH_NAMES_ES[m - 1]} ${y}`;
-
-      const editingWeek = weeksOfMonth.find((w) => w.startDate === editingWeekStart);
-      if (editingWeek) {
-        const historyExcludingThis = state.lockedWeeks.filter((x) => x.startDate !== editingWeek.startDate);
-        const audit = Core.auditWeek(state.students, historyExcludingThis, editingWeekDraft);
-        const weekLabel = `Semana ${editingWeek.weekIndex}`;
-        return `<div class="week-card card">
-          <div class="week-card-head"><h3>${escapeHtml(label)} — editando ${escapeHtml(weekLabel)}</h3></div>
-          <div class="alert warning">Estás editando una semana ya bloqueada — es una excepción manual explícita. Se guarda apenas confirmes.</div>
-          <div class="audit-list">${renderAudit(audit)}</div>
-          ${renderEditableWeekGridTable(editingWeekDraft, studentsById, 'draft')}
-          <div class="btn-row">
-            <button class="btn" data-action="save-edit-week">Guardar cambios</button>
-            <button class="btn secondary" data-action="cancel-edit-week">Cancelar</button>
-          </div>
-        </div>`;
-      }
-
-      const mergedDays = weeksOfMonth.flatMap((w) => w.days);
       const dateRange = `${Core.formatDateEs(Core.fromISO(weeksOfMonth[0].startDate))} – ${Core.formatDateEs(Core.fromISO(weeksOfMonth[weeksOfMonth.length - 1].endDate))}`;
-      const weekControls = weeksOfMonth.map((w) => `
-        <span class="week-mini">
-          Semana ${w.weekIndex}
-          <button class="btn small secondary" data-action="edit-week" data-start="${w.startDate}">Editar</button>
-          <button class="btn small danger" data-action="unlock-week" data-start="${w.startDate}">Desbloquear</button>
-        </span>
-      `).join('');
+      const isOpen = expandedMonthKey === key;
 
-      return `<div class="week-card card">
-        <div class="week-card-head">
-          <h3>${escapeHtml(label)}</h3>
-          <span class="muted">${dateRange}</span>
-          <button class="btn small secondary" data-action="print-month" data-month-key="${key}">PDF del mes</button>
+      const bodyHtml = isOpen ? `
+        <div class="month-card-body">
+          ${renderWeekGridTable({ days: weeksOfMonth.flatMap((w) => w.days) })}
+          <div class="btn-row">
+            <button class="btn small secondary" data-action="print-month" data-month-key="${key}">
+              <svg class="icon-download" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 1a1 1 0 0 1 1 1v6.086l1.793-1.793a1 1 0 1 1 1.414 1.414l-3.5 3.5a1 1 0 0 1-1.414 0l-3.5-3.5a1 1 0 1 1 1.414-1.414L7 8.086V2a1 1 0 0 1 1-1zM2 12a1 1 0 0 1 1 1v1h10v-1a1 1 0 1 1 2 0v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2v-1a1 1 0 0 1 1-1z"/></svg>
+              PDF
+            </button>
+          </div>
         </div>
-        ${renderWeekGridTable({ days: mergedDays })}
-        <div class="week-mini-list">${weekControls}</div>
+      ` : '';
+
+      return `<div class="week-card card month-card ${isOpen ? 'open' : ''}">
+        <button type="button" class="month-toggle" data-action="toggle-month" data-month-key="${key}" aria-expanded="${isOpen}">
+          <span class="month-toggle-title">
+            <h3>${escapeHtml(label)}</h3>
+            <span class="muted">${dateRange}</span>
+          </span>
+          <span class="month-toggle-chevron" aria-hidden="true">▾</span>
+        </button>
+        ${bodyHtml}
       </div>`;
     }).join('');
 
     el.innerHTML = monthCards;
+  }
+
+  function handleToggleMonth(key) {
+    expandedMonthKey = expandedMonthKey === key ? null : key;
+    renderSemanas();
   }
 
   function handleUnlockWeek(startDate) {
@@ -763,15 +757,7 @@
       if (!btn) return;
       const action = btn.dataset.action;
       if (action === 'print-month') handlePrintMonth(btn.dataset.monthKey);
-      else if (action === 'edit-week') handleEditWeekStart(btn.dataset.start);
-      else if (action === 'unlock-week') handleUnlockWeek(btn.dataset.start);
-      else if (action === 'save-edit-week') handleEditWeekSave();
-      else if (action === 'cancel-edit-week') handleEditWeekCancel();
-    });
-    el.addEventListener('change', (e) => {
-      if (e.target.matches('select[data-action="set-area"]')) {
-        handleEditWeekSetArea(e.target.dataset.date, e.target.dataset.student, e.target.value);
-      }
+      else if (action === 'toggle-month') handleToggleMonth(btn.dataset.monthKey);
     });
   }
 
