@@ -26,6 +26,7 @@
       lockedWeeks: [],
       pendingProposal: null,
       settings: {},
+      closedMonths: [],
     };
   }
 
@@ -35,6 +36,7 @@
       lockedWeeks: Array.isArray(parsed.lockedWeeks) ? parsed.lockedWeeks : [],
       pendingProposal: parsed.pendingProposal || null,
       settings: parsed.settings || {},
+      closedMonths: Array.isArray(parsed.closedMonths) ? parsed.closedMonths : [],
     };
   }
 
@@ -205,6 +207,69 @@
   // -----------------------------------------------------------------
   // Tab: Generar
   // -----------------------------------------------------------------
+  function sortWeeksAsc(weeks) {
+    return [...weeks].sort((a, b) => (a.endDate < b.endDate ? -1 : 1));
+  }
+
+  function weekLongLabel(w) {
+    return `Semana ${w.weekIndex} de ${Core.MONTH_NAMES_ES[w.month - 1]} ${w.year} (${Core.formatDateEs(Core.fromISO(w.startDate))} – ${Core.formatDateEs(Core.fromISO(w.endDate))})`;
+  }
+
+  // Único bloque con el switch de bloqueo/edición, reutilizado tanto para
+  // "semana anterior" (junto a una propuesta en curso) como para la última
+  // semana de un mes recién completado (pantalla de cierre de mes).
+  function renderPreviousWeekBlock(week) {
+    if (!week) return '';
+    const label = weekLongLabel(week);
+    const editing = editingWeekStart === week.startDate;
+    const studentsById = Object.fromEntries(state.students.map((s) => [s.id, s]));
+    const toggle = `
+      <label class="switch" title="${editing ? 'Tocá para volver a bloquear' : 'Tocá para editar'}">
+        <input type="checkbox" data-action="toggle-previous-lock" data-start="${week.startDate}" ${editing ? 'checked' : ''}>
+        <span class="switch-track"><span class="switch-thumb"></span></span>
+        <span class="switch-label">${editing ? 'Editando' : 'Bloqueada'}</span>
+      </label>`;
+    if (editing) {
+      const ownHistory = state.lockedWeeks.filter((w) => w.startDate !== week.startDate);
+      const ownAudit = Core.auditWeek(state.students, ownHistory, editingWeekDraft);
+      return `
+        <div class="card">
+          <div class="week-card-head"><h3>Semana anterior <span class="muted">— editando en simultáneo</span></h3>${toggle}</div>
+          <p class="muted">${escapeHtml(label)}</p>
+          <div class="alert warning">Estás editando la semana anterior mientras revisás la propuesta actual. Los cambios se guardan al volver a bloquear (switch), y ahí la propuesta de arriba se recalcula sola con el historial ya corregido.</div>
+          <div class="audit-list">${renderAudit(ownAudit)}</div>
+          ${renderEditableWeekGridTable(editingWeekDraft, studentsById, 'draft')}
+          <div class="btn-row">
+            <button class="btn" data-action="confirm-previous-week">Confirmar y bloquear de nuevo</button>
+            <button class="btn secondary" data-action="cancel-edit-week">Cancelar sin guardar</button>
+          </div>
+        </div>`;
+    }
+    return `
+      <div class="card">
+        <div class="week-card-head">
+          <h3>Semana anterior <span class="muted">(referencia — confirmá que nadie repite área)</span></h3>
+          ${toggle}
+          <button class="btn small danger" data-action="delete-previous-week" data-start="${week.startDate}">Eliminar esta semana</button>
+        </div>
+        <p class="muted">${escapeHtml(label)}</p>
+        ${renderWeekGridTable(week)}
+      </div>`;
+  }
+
+  // Semanas de referencia extra, de solo lectura (sin switch): al arrancar
+  // un mes se ven las últimas dos semanas bloqueadas (aunque sean del mes
+  // anterior); al ir generando la semana 2, 3, etc. de un mes en curso, acá
+  // se van sumando en tiempo real las semanas ya bloqueadas de ESE mes.
+  function renderReferenceWeekCard(w) {
+    return `
+      <div class="card">
+        <h3>Referencia <span class="muted">(bloqueada)</span></h3>
+        <p class="muted">${escapeHtml(weekLongLabel(w))}</p>
+        ${renderWeekGridTable(w)}
+      </div>`;
+  }
+
   function renderGenerar() {
     const el = document.getElementById('tab-generar');
     if (state.pendingProposal) {
@@ -212,46 +277,19 @@
       const audit = Core.auditWeek(state.students, historyForAudit(), proposal);
       const label = `Semana ${proposal.weekIndex} de ${Core.MONTH_NAMES_ES[proposal.month - 1]} ${proposal.year} (${Core.formatDateEs(Core.fromISO(proposal.startDate))} – ${Core.formatDateEs(Core.fromISO(proposal.endDate))})`;
       const studentsById = Object.fromEntries(state.students.map((s) => [s.id, s]));
-      const previousWeek = [...state.lockedWeeks].sort((a, b) => (a.endDate < b.endDate ? 1 : -1))[0];
-      const previousLabel = previousWeek ? `Semana ${previousWeek.weekIndex} de ${Core.MONTH_NAMES_ES[previousWeek.month - 1]} ${previousWeek.year} (${Core.formatDateEs(Core.fromISO(previousWeek.startDate))} – ${Core.formatDateEs(Core.fromISO(previousWeek.endDate))})` : '';
-      const editingPrevious = previousWeek && editingWeekStart === previousWeek.startDate;
 
-      let previousBlock = '';
+      const sortedLocked = sortWeeksAsc(state.lockedWeeks);
+      const previousWeek = sortedLocked[sortedLocked.length - 1] || null;
+      let earlierRefWeeks = [];
       if (previousWeek) {
-        const toggle = `
-          <label class="switch" title="${editingPrevious ? 'Tocá para volver a bloquear' : 'Tocá para editar'}">
-            <input type="checkbox" data-action="toggle-previous-lock" data-start="${previousWeek.startDate}" ${editingPrevious ? 'checked' : ''}>
-            <span class="switch-track"><span class="switch-thumb"></span></span>
-            <span class="switch-label">${editingPrevious ? 'Editando' : 'Bloqueada'}</span>
-          </label>`;
-        if (editingPrevious) {
-          const ownHistory = state.lockedWeeks.filter((w) => w.startDate !== previousWeek.startDate);
-          const ownAudit = Core.auditWeek(state.students, ownHistory, editingWeekDraft);
-          previousBlock = `
-            <div class="card">
-              <div class="week-card-head"><h3>Semana anterior <span class="muted">— editando en simultáneo</span></h3>${toggle}</div>
-              <p class="muted">${escapeHtml(previousLabel)}</p>
-              <div class="alert warning">Estás editando la semana anterior mientras revisás la propuesta actual. Los cambios se guardan al volver a bloquear (switch), y ahí la propuesta de arriba se recalcula sola con el historial ya corregido.</div>
-              <div class="audit-list">${renderAudit(ownAudit)}</div>
-              ${renderEditableWeekGridTable(editingWeekDraft, studentsById, 'draft')}
-              <div class="btn-row">
-                <button class="btn" data-action="confirm-previous-week">Confirmar y bloquear de nuevo</button>
-                <button class="btn secondary" data-action="cancel-edit-week">Cancelar sin guardar</button>
-              </div>
-            </div>`;
+        if (proposal.weekIndex === 1) {
+          const secondLast = sortedLocked[sortedLocked.length - 2];
+          if (secondLast) earlierRefWeeks = [secondLast];
         } else {
-          previousBlock = `
-            <div class="card">
-              <div class="week-card-head">
-                <h3>Semana anterior <span class="muted">(referencia — confirmá que nadie repite área)</span></h3>
-                ${toggle}
-                <button class="btn small danger" data-action="delete-previous-week" data-start="${previousWeek.startDate}">Eliminar esta semana</button>
-              </div>
-              <p class="muted">${escapeHtml(previousLabel)}</p>
-              ${renderWeekGridTable(previousWeek)}
-            </div>`;
+          earlierRefWeeks = sortedLocked.filter((w) => w.year === proposal.year && w.month === proposal.month && w.startDate !== previousWeek.startDate);
         }
       }
+      const earlierRefHtml = [...earlierRefWeeks].reverse().map(renderReferenceWeekCard).join('');
 
       el.innerHTML = `
         <div class="card">
@@ -268,7 +306,8 @@
             <button class="btn danger" data-action="discard">Descartar propuesta</button>
           </div>
         </div>
-        ${previousBlock}
+        ${renderPreviousWeekBlock(previousWeek)}
+        ${earlierRefHtml}
       `;
       return;
     }
@@ -278,6 +317,33 @@
       el.innerHTML = '<div class="empty-state">No se pudo calcular la próxima semana.</div>';
       return;
     }
+
+    // Antes de dejar arrancar la semana 1 de un mes nuevo, si el mes recién
+    // terminado todavía no se cerró explícitamente, se muestra completo
+    // para un último ajuste + el botón "Cerrar calendario mensual".
+    if (weekInfo.index === 1 && state.lockedWeeks.length > 0) {
+      const sortedLocked = sortWeeksAsc(state.lockedWeeks);
+      const lastLocked = sortedLocked[sortedLocked.length - 1];
+      const closedKey = `${lastLocked.year}-${Core.pad2(lastLocked.month)}`;
+      if (isMonthComplete(state.lockedWeeks, lastLocked.year, lastLocked.month) && !state.closedMonths.includes(closedKey)) {
+        const weeksOfThatMonth = sortedLocked.filter((w) => w.year === lastLocked.year && w.month === lastLocked.month);
+        const monthLabel = `${Core.MONTH_NAMES_ES[lastLocked.month - 1]} ${lastLocked.year}`;
+        const nextLabel = `${Core.MONTH_NAMES_ES[weekInfo.month - 1]} ${weekInfo.year}`;
+        el.innerHTML = `
+          <div class="card">
+            <h2>${escapeHtml(monthLabel)} — mes completo</h2>
+            <p class="muted">Revisá el mes completo antes de pasar a ${escapeHtml(nextLabel)}. Si hace falta un último ajuste, usá el switch de la semana de abajo.</p>
+            ${renderMonthGridTable(weeksOfThatMonth)}
+            <div class="btn-row">
+              <button class="btn" data-action="close-month" data-month-key="${closedKey}">Cerrar calendario mensual</button>
+            </div>
+          </div>
+          ${renderPreviousWeekBlock(lastLocked)}
+        `;
+        return;
+      }
+    }
+
     const label = Core.formatWeekLabel(weekInfo);
     const isPartial = weekInfo.days.length < 7;
     const startPicker = state.lockedWeeks.length === 0 ? `
@@ -356,6 +422,15 @@
     saveState();
     renderAll();
     showToast('Semana bloqueada. No se podrá reescribir salvo pedido explícito.');
+  }
+
+  function handleCloseMonth(monthKey) {
+    if (!state.closedMonths.includes(monthKey)) {
+      state.closedMonths = [...state.closedMonths, monthKey];
+    }
+    saveState();
+    renderAll();
+    showToast('Mes cerrado. Ya podés generar el próximo.');
   }
 
   function handleStartMonthChange(input) {
@@ -927,6 +1002,7 @@
       else if (action === 'confirm-previous-week') handleConfirmPreviousWeekEdit();
       else if (action === 'cancel-edit-week') handleEditWeekCancel();
       else if (action === 'delete-previous-week') handleUnlockWeek(btn.dataset.start);
+      else if (action === 'close-month') handleCloseMonth(btn.dataset.monthKey);
     });
     el.addEventListener('change', (e) => {
       if (e.target.id === 'start-month-input') handleStartMonthChange(e.target);
