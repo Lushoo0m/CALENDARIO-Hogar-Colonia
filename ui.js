@@ -139,7 +139,7 @@
       const cells = Core.AREAS.map((ar) => `<td>${cellByArea[ar.id] || '<span class="muted">—</span>'}</td>`).join('');
       return `<tr class="dow-${day.dow}"><td><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)}</td>${cells}</tr>`;
     }).join('');
-    return `<div class="table-wrap"><table>${header}${rows}</table></div>`;
+    return `<div class="table-wrap"><table><thead>${header}</thead><tbody>${rows}</tbody></table></div>`;
   }
 
   function renderAudit(audit) {
@@ -569,6 +569,10 @@
               <svg class="icon-download" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 1a1 1 0 0 1 1 1v6.086l1.793-1.793a1 1 0 1 1 1.414 1.414l-3.5 3.5a1 1 0 0 1-1.414 0l-3.5-3.5a1 1 0 1 1 1.414-1.414L7 8.086V2a1 1 0 0 1 1-1zM2 12a1 1 0 0 1 1 1v1h10v-1a1 1 0 1 1 2 0v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2v-1a1 1 0 0 1 1-1z"/></svg>
               PDF
             </button>
+            <button class="btn small secondary" data-action="download-image" data-month-key="${key}">
+              <svg class="icon-download" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3zm1.5.5v6.6l2.6-2.4a.75.75 0 0 1 1 0l2 1.85 1.9-1.75a.75.75 0 0 1 1 0l1.5 1.4V3.5h-10zm0 9v-.66l3.1-2.87 4.9 4.53H3.5zm9-.06-2.02-1.87 2.02-1.86v3.73zM5.5 6.2a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/></svg>
+              Imagen
+            </button>
           </div>
         </div>
       ` : '';
@@ -690,6 +694,169 @@
   }
 
   // -----------------------------------------------------------------
+  // Descargar como imagen (PNG): dibuja el mismo calendario a mano en un
+  // <canvas> (mismos colores por día que la app) y lo baja como archivo,
+  // para poder mandarlo directo a un grupo de WhatsApp. Sin librerías: se
+  // dibuja todo con la API 2D del canvas, en una sola imagen sin cortes de
+  // página, así se ve el mes completo de punta a punta.
+  // -----------------------------------------------------------------
+  const DOW_COLORS = { 1: '#23303f', 2: '#2b2a3f', 3: '#313026', 4: '#2f2620', 5: '#263329', 6: '#332627', 7: '#23282e' };
+  const IMG_FONT = '-apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+
+  function roundRectPath(ctx, x, y, w, h, r) {
+    const radius = Math.min(r, h / 2, w / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.arcTo(x + w, y, x + w, y + h, radius);
+    ctx.arcTo(x + w, y + h, x, y + h, radius);
+    ctx.arcTo(x, y + h, x, y, radius);
+    ctx.arcTo(x, y, x + w, y, radius);
+    ctx.closePath();
+  }
+
+  function fitFontSize(ctx, text, maxWidth, weight, startSize) {
+    let size = startSize;
+    ctx.font = `${weight} ${size}px ${IMG_FONT}`;
+    while (size > 9 && ctx.measureText(text).width > maxWidth) {
+      size -= 1;
+      ctx.font = `${weight} ${size}px ${IMG_FONT}`;
+    }
+    return size;
+  }
+
+  function buildMonthImageDataUrl(monthKey) {
+    const weeksOfMonth = weeksOfMonthKey(monthKey);
+    if (!weeksOfMonth.length) return null;
+    const [, m] = monthKey.split('-').map(Number);
+    const label = `${Core.MONTH_NAMES_ES[m - 1]} ${weeksOfMonth[0].year}`;
+    const mergedDays = weeksOfMonth.flatMap((w) => w.days);
+
+    const BG = '#14151a';
+    const PANEL2 = '#21232c';
+    const BORDER = '#333644';
+    const TEXT = '#e7e8ec';
+    const MUTED = '#9198a8';
+
+    const dayColWidth = 148;
+    const areaColWidth = 136;
+    const cols = [{ id: 'day', label: 'Día', width: dayColWidth }]
+      .concat(Core.AREAS.map((a) => ({ id: a.id, label: a.label, width: areaColWidth })));
+    const tableWidth = cols.reduce((sum, c) => sum + c.width, 0);
+
+    const headerH = 34;
+    const rowH = 32;
+    const titleH = 66;
+    const footerH = 26;
+    const pad = 22;
+    const width = tableWidth + pad * 2;
+    const height = titleH + headerH + mergedDays.length * rowH + footerH + pad * 2;
+
+    const SCALE = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = width * SCALE;
+    canvas.height = height * SCALE;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(SCALE, SCALE);
+    ctx.textBaseline = 'middle';
+
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.fillStyle = TEXT;
+    ctx.font = `700 19px ${IMG_FONT}`;
+    ctx.fillText('Hogar Colonia — Calendario de limpieza', pad, pad + 10);
+    ctx.fillStyle = MUTED;
+    ctx.font = `600 14px ${IMG_FONT}`;
+    ctx.fillText(label, pad, pad + 34);
+
+    let y = pad + titleH;
+
+    ctx.fillStyle = PANEL2;
+    ctx.fillRect(pad, y, tableWidth, headerH);
+    ctx.strokeStyle = BORDER;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(pad + 0.5, y + 0.5, tableWidth - 1, headerH - 1);
+    let hx = pad;
+    ctx.fillStyle = MUTED;
+    ctx.font = `700 10.5px ${IMG_FONT}`;
+    cols.forEach((c) => {
+      ctx.fillText(c.label.toUpperCase(), hx + 10, y + headerH / 2 + 1);
+      hx += c.width;
+    });
+    y += headerH;
+
+    mergedDays.forEach((day) => {
+      const cellByArea = {};
+      day.assignments.forEach((a) => {
+        const existing = cellByArea[a.area];
+        cellByArea[a.area] = existing ? `${existing}, ${a.name}` : a.name;
+      });
+
+      ctx.fillStyle = DOW_COLORS[day.dow];
+      ctx.globalAlpha = 0.55;
+      ctx.fillRect(pad, y, tableWidth, rowH);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = BORDER;
+      ctx.strokeRect(pad + 0.5, y + 0.5, tableWidth - 1, rowH - 1);
+
+      let cx = pad;
+      const dateObj = Core.fromISO(day.date);
+      const dowLabel = Core.DOW_NAMES_ES[day.dow - 1];
+      const dateLabel = Core.formatDateEs(dateObj);
+
+      ctx.font = `700 10.5px ${IMG_FONT}`;
+      const pillPadX = 7;
+      const pillH = 18;
+      const pillW = ctx.measureText(dowLabel).width + pillPadX * 2;
+      const pillX = cx + 8;
+      const pillY = y + rowH / 2 - pillH / 2;
+      ctx.fillStyle = DOW_COLORS[day.dow];
+      roundRectPath(ctx, pillX, pillY, pillW, pillH, 999);
+      ctx.fill();
+      ctx.fillStyle = TEXT;
+      ctx.fillText(dowLabel, pillX + pillPadX, pillY + pillH / 2 + 1);
+
+      ctx.font = `400 11.5px ${IMG_FONT}`;
+      ctx.fillStyle = TEXT;
+      ctx.fillText(dateLabel, pillX + pillW + 8, y + rowH / 2 + 1);
+
+      cx += dayColWidth;
+      Core.AREAS.forEach((ar) => {
+        const text = cellByArea[ar.id] || '—';
+        const maxTextWidth = areaColWidth - 16;
+        fitFontSize(ctx, text, maxTextWidth, '400', 12);
+        ctx.fillStyle = text === '—' ? MUTED : TEXT;
+        ctx.fillText(text, cx + 10, y + rowH / 2 + 1);
+        cx += areaColWidth;
+      });
+
+      y += rowH;
+    });
+
+    ctx.fillStyle = MUTED;
+    ctx.font = `400 10.5px ${IMG_FONT}`;
+    ctx.fillText(`Generado ${new Date().toLocaleDateString('es-AR')}`, pad, y + 16);
+
+    return canvas.toDataURL('image/png');
+  }
+
+  function handleDownloadMonthImage(monthKey) {
+    const dataUrl = buildMonthImageDataUrl(monthKey);
+    if (!dataUrl) return;
+    const [, m] = monthKey.split('-').map(Number);
+    const weeksOfMonth = weeksOfMonthKey(monthKey);
+    const fileLabel = `${Core.MONTH_NAMES_ES[m - 1]}-${weeksOfMonth[0].year}`
+      .toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = `calendario-${fileLabel}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  // -----------------------------------------------------------------
   // Wiring
   // -----------------------------------------------------------------
   function renderAll() {
@@ -757,6 +924,7 @@
       if (!btn) return;
       const action = btn.dataset.action;
       if (action === 'print-month') handlePrintMonth(btn.dataset.monthKey);
+      else if (action === 'download-image') handleDownloadMonthImage(btn.dataset.monthKey);
       else if (action === 'toggle-month') handleToggleMonth(btn.dataset.monthKey);
     });
   }

@@ -148,6 +148,23 @@ function localAddresses() {
   return addresses;
 }
 
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.log('');
+    console.log('Calendario de Limpieza — Hogar Colonia');
+    console.log('');
+    console.log(`El servidor YA ESTÁ CORRIENDO en otra ventana (puerto ${PORT} ocupado).`);
+    console.log('No hace falta abrirlo de nuevo: buscá la otra ventana negra que ya está');
+    console.log(`abierta, o entrá directo a http://localhost:${PORT} en el navegador.`);
+    console.log('');
+    console.log('Si de verdad no hay ninguna otra ventana abierta y este mensaje persiste,');
+    console.log('reiniciá la computadora y volvé a intentar.');
+    console.log('');
+    process.exit(1);
+  }
+  throw err;
+});
+
 server.listen(PORT, () => {
   console.log('');
   console.log('Calendario de Limpieza — Hogar Colonia');
