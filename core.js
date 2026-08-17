@@ -49,7 +49,7 @@
   const INITIAL_STUDENTS = [
     { id: 'darhian', name: 'Darhian', fullName: 'Darhian Martín Torres Galardi', sex: 'M', fixedDay: 1, kitchenGroup: 'k1', active: true },
     { id: 'lorenzo-c', name: 'Lorenzo C.', fullName: 'Lorenzo Coimbra Rodríguez', sex: 'M', fixedDay: 1, kitchenGroup: 'k1', active: true },
-    { id: 'pablo', name: 'Pablo', fullName: 'Pablo', sex: null, fixedDay: 1, kitchenGroup: 'k1', active: true },
+    { id: 'pablo', name: 'Pablo', fullName: 'Pablo Pereira', sex: 'M', fixedDay: 1, kitchenGroup: 'k1', active: true },
 
     { id: 'joaquin', name: 'Joaquín', fullName: 'Joaquín Techera Duarte', sex: 'M', fixedDay: 2, kitchenGroup: 'k1', active: true },
     { id: 'florencia', name: 'Florencia', fullName: 'Keyt Florencia Acuña Camargo', sex: 'F', fixedDay: 2, kitchenGroup: 'k1', active: true },
@@ -72,7 +72,7 @@
 
     { id: 'natasha', name: 'Natasha', fullName: 'Carmen Natasha Silvera Ramos', sex: 'F', fixedDay: 7, kitchenGroup: 'k1', active: true },
     { id: 'luana-r', name: 'Luana R.', fullName: 'Luana R.', sex: null, fixedDay: 7, kitchenGroup: 'k1', active: true },
-    { id: 'vitorio', name: 'Vitorio', fullName: 'Vitorio', sex: null, fixedDay: 7, kitchenGroup: 'k2', active: true },
+    { id: 'vitorio', name: 'Vitorio', fullName: 'Vitorio Olivera', sex: 'M', fixedDay: 7, kitchenGroup: 'k2', active: true },
   ];
 
   // ---------------------------------------------------------------------
