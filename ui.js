@@ -157,9 +157,9 @@
   // anteriores y en el PDF; la imagen descargable dibuja lo mismo a mano.
   function renderMonthGridTable(weeksOfMonth) {
     const header = weekGridHeaderHtml();
-    const colspan = Core.AREAS.length + 1;
     const body = weeksOfMonth.map((week) => {
-      const divider = `<tr class="week-divider-row"><td colspan="${colspan}">Semana ${week.weekIndex}</td></tr>`;
+      const areaCells = Core.AREAS.map((a) => `<td>${escapeHtml(a.label)}</td>`).join('');
+      const divider = `<tr class="week-divider-row"><td>Semana ${week.weekIndex}</td>${areaCells}</tr>`;
       return divider + weekDayRowsHtml(week.days);
     }).join('');
     return `<div class="table-wrap"><table><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
@@ -813,9 +813,14 @@
       ctx.fillRect(pad, y, tableWidth, dividerH);
       ctx.strokeStyle = BORDER;
       ctx.strokeRect(pad + 0.5, y + 0.5, tableWidth - 1, dividerH - 1);
-      ctx.fillStyle = MUTED;
+      let dx = pad;
       ctx.font = `700 10px ${IMG_FONT}`;
-      ctx.fillText(`SEMANA ${week.weekIndex}`, pad + 10, y + dividerH / 2 + 1);
+      cols.forEach((c, i) => {
+        ctx.fillStyle = i === 0 ? TEXT : MUTED;
+        const label = i === 0 ? `SEMANA ${week.weekIndex}` : c.label.toUpperCase();
+        ctx.fillText(label, dx + 10, y + dividerH / 2 + 1);
+        dx += c.width;
+      });
       y += dividerH;
 
       week.days.forEach((day) => {
