@@ -187,8 +187,27 @@ tr.dow-7 { background: color-mix(in srgb, var(--dow-7) 55%, transparent); }
 .alert.ok { background: var(--ok-bg); border-color: #2c4534; color: #b3d9bc; }
 
 .cell-edit { min-width: 118px; }
-.cell-student { font-size: 0.82rem; font-weight: 600; margin-bottom: 4px; }
+.cell-student { font-size: 0.82rem; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
 .cell-area-select { width: 100%; font-size: 0.78rem; padding: 4px 6px; }
+
+.star-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+  color: var(--muted);
+  transition: transform 0.12s;
+}
+.star-toggle:hover { transform: scale(1.15); }
+.star-toggle .star-icon { display: block; }
+.star-icon.star-filled {
+  color: #ffd23f;
+  filter: drop-shadow(0 0 3px rgba(255, 210, 63, 0.9)) drop-shadow(0 0 6px rgba(255, 210, 63, 0.5));
+}
 
 select, input[type=text], input[type=date] {
   background: var(--panel-2);
