@@ -145,8 +145,8 @@ tr.week-divider-row td {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 4px 10px;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  border-top: 2px solid #fff;
+  border-bottom: 2px solid #fff;
 }
 tr.week-divider-row td:first-child { color: var(--text); }
 
@@ -333,7 +333,7 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
   #print-area tr.dow-5 { background: color-mix(in srgb, var(--dow-5) 55%, transparent); }
   #print-area tr.dow-6 { background: color-mix(in srgb, var(--dow-6) 55%, transparent); }
   #print-area tr.dow-7 { background: color-mix(in srgb, var(--dow-7) 55%, transparent); }
-  #print-area tr.week-divider-row td { background: var(--panel-2); color: var(--muted); }
+  #print-area tr.week-divider-row td { background: var(--panel-2); color: var(--muted); border-top: 2px solid #fff; border-bottom: 2px solid #fff; }
   #print-area tr.week-divider-row td:first-child { color: var(--text); }
   #print-area .day-pill { color: var(--text); }
   #print-area .muted { color: var(--muted); }
