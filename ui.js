@@ -700,6 +700,15 @@
         <p class="muted">Tocá un nombre para ver el detalle completo (nombre completo, sexo, día, grupo, puntos).</p>
         <div class="student-list">${rows || '<p class="empty-state">No hay estudiantes cargados.</p>'}</div>
       </div>
+      <div class="card">
+        <h2>Copia de seguridad</h2>
+        <p class="muted">Mientras la PC y el celular estén en la misma red y abran el mismo link, ya se actualizan solos — no hace falta exportar nada para eso. Esto es para tener un respaldo aparte, o para pasar toda la información a otra computadora: descarga estudiantes, calendarios y meses cerrados en un solo archivo, e "Importar" lo vuelve a cargar (reemplazando todo lo que haya en este momento).</p>
+        <div class="btn-row">
+          <button class="btn small secondary" data-action="export-backup">Exportar copia completa</button>
+          <button class="btn small secondary" data-action="import-backup">Importar copia</button>
+          <input type="file" id="import-backup-input" accept="application/json" hidden>
+        </div>
+      </div>
     `;
   }
 
@@ -725,6 +734,60 @@
     renderEstudiantes();
     renderGenerar();
     showToast(`${name} agregado/a.`);
+  }
+
+  // -----------------------------------------------------------------
+  // Copia de seguridad: exporta TODO el estado (estudiantes, calendarios,
+  // meses cerrados) como un .json descargable, e importarlo lo reemplaza
+  // por completo — pensado como respaldo manual o para migrar a otra PC,
+  // no como el mecanismo normal de sincronización (eso ya lo hace el
+  // servidor compartido solo, en tiempo real, para todo dispositivo en la
+  // misma red que abra el mismo link).
+  // -----------------------------------------------------------------
+  function handleExportBackup() {
+    const dataStr = JSON.stringify(state, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `calendario-hogar-colonia-copia-${Core.toISO(new Date())}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast('Copia descargada.');
+  }
+
+  function handleImportBackupClick() {
+    document.getElementById('import-backup-input').click();
+  }
+
+  function handleImportBackupFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      let parsed;
+      try {
+        parsed = JSON.parse(reader.result);
+      } catch (e) {
+        showToast('El archivo no es una copia válida (JSON inválido).');
+        return;
+      }
+      const ok = confirm('¿Importar esta copia? Va a REEMPLAZAR toda la información actual (estudiantes, calendarios, meses cerrados) acá y en el servidor compartido. Esta acción no se puede deshacer.');
+      if (!ok) return;
+      state = normalizeState(parsed);
+      editingStudentId = null;
+      expandedStudentId = null;
+      editingWeekStart = null;
+      editingWeekDraft = null;
+      expandedMonthKey = null;
+      editingMonthKey = null;
+      editingMonthDraft = null;
+      saveState();
+      renderAll();
+      showToast('Copia importada correctamente.');
+    };
+    reader.readAsText(file);
   }
 
   function handleToggleDetail(id) { expandedStudentId = expandedStudentId === id ? null : id; renderEstudiantes(); }
@@ -1196,6 +1259,11 @@
       else if (action === 'save-rename') handleRenameSave(id);
       else if (action === 'cancel-rename') handleRenameCancel();
       else if (action === 'delete') handleDeleteStudent(id);
+      else if (action === 'export-backup') handleExportBackup();
+      else if (action === 'import-backup') handleImportBackupClick();
+    });
+    el.addEventListener('change', (e) => {
+      if (e.target.id === 'import-backup-input') handleImportBackupFile(e.target.files[0]);
     });
   }
 
