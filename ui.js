@@ -225,7 +225,7 @@
   // Único bloque con el switch de bloqueo/edición, reutilizado tanto para
   // "semana anterior" (junto a una propuesta en curso) como para la última
   // semana de un mes recién completado (pantalla de cierre de mes).
-  function renderPreviousWeekBlock(week, heading = 'Semana anterior') {
+  function renderPreviousWeekBlock(week, heading = 'Semana anterior', subtitle = 'referencia — confirmá que nadie repite área', editingSubtitle = 'editando en simultáneo') {
     if (!week) return '';
     const label = weekLongLabel(week);
     const editing = editingWeekStart === week.startDate;
@@ -241,7 +241,7 @@
       const ownAudit = Core.auditWeek(state.students, ownHistory, editingWeekDraft);
       return `
         <div class="card">
-          <div class="week-card-head"><h3>${escapeHtml(heading)} <span class="muted">— editando en simultáneo</span></h3>${toggle}</div>
+          <div class="week-card-head"><h3>${escapeHtml(heading)} <span class="muted">— ${escapeHtml(editingSubtitle)}</span></h3>${toggle}</div>
           <p class="muted">${escapeHtml(label)}</p>
           <div class="alert warning">Estás editando esta semana mientras revisás el resto. Los cambios se guardan al volver a bloquear (switch), y ahí se recalcula lo que dependa del historial nuevo.</div>
           <div class="audit-list">${renderAudit(ownAudit)}</div>
@@ -255,7 +255,7 @@
     return `
       <div class="card">
         <div class="week-card-head">
-          <h3>${escapeHtml(heading)} <span class="muted">(referencia — confirmá que nadie repite área)</span></h3>
+          <h3>${escapeHtml(heading)} <span class="muted">(${escapeHtml(subtitle)})</span></h3>
           ${toggle}
           <button class="btn small danger" data-action="delete-previous-week" data-start="${week.startDate}">Eliminar esta semana</button>
         </div>
@@ -336,7 +336,7 @@
         const weeksOfThatMonth = sortedLocked.filter((w) => w.year === lastLocked.year && w.month === lastLocked.month);
         const monthLabel = `${Core.MONTH_NAMES_ES[lastLocked.month - 1]} ${lastLocked.year}`;
         const nextLabel = `${Core.MONTH_NAMES_ES[weekInfo.month - 1]} ${weekInfo.year}`;
-        const editableWeeksHtml = weeksOfThatMonth.map((w) => renderPreviousWeekBlock(w, `Semana ${w.weekIndex}`)).join('');
+        const editableWeeksHtml = weeksOfThatMonth.map((w) => renderPreviousWeekBlock(w, `Semana ${w.weekIndex}`, 'bloqueada — tocá el switch para editar', 'editando')).join('');
         el.innerHTML = `
           <div class="card">
             <h2>${escapeHtml(monthLabel)} — mes completo</h2>
