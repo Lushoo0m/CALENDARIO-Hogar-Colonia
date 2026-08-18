@@ -19,6 +19,8 @@
   let editingWeekStart = null;
   let editingWeekDraft = null;
   let expandedMonthKey = null;
+  let editingMonthKey = null;
+  let editingMonthDraft = null;
 
   function defaultState() {
     return {
@@ -172,6 +174,56 @@
       return divider + weekDayRowsHtml(week.days);
     }).join('');
     return `<div class="table-wrap"><table><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
+  }
+
+  // Variante editable de renderMonthGridTable: el mes completo se edita
+  // como una única grilla continua (con sus divisores "Semana N"), no
+  // semana por semana — usada en el modo "Corrección" del mes recién
+  // cerrado. Cada celda ocupada lleva un <select>, igual que en la
+  // propuesta semanal, pero con el inicio de semana en el dataset para
+  // saber a qué semana del borrador aplicar el cambio.
+  function editableMonthDayRowsHtml(days, weekStart, studentsById) {
+    return days.map((day) => {
+      const byArea = {};
+      day.assignments.forEach((a) => { byArea[a.area] = a; });
+      const dateObj = Core.fromISO(day.date);
+      const cells = Core.AREAS.map((ar) => {
+        const a = byArea[ar.id];
+        if (!a) return '<td><span class="muted">—</span></td>';
+        const student = studentsById[a.studentId];
+        const elig = student ? Core.eligibleAreas(student) : Core.AREAS;
+        const options = elig.map((opt) => `<option value="${opt.id}" ${opt.id === a.area ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('');
+        return `<td class="cell-edit">
+          <div class="cell-student">${escapeHtml(a.name)}</div>
+          <select class="cell-area-select" data-action="set-month-area" data-week-start="${weekStart}" data-date="${day.date}" data-student="${a.studentId}">${options}</select>
+        </td>`;
+      }).join('');
+      return `<tr class="dow-${day.dow}"><td><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)}</td>${cells}</tr>`;
+    }).join('');
+  }
+
+  function renderEditableMonthGridTable(weeksDraft, studentsById) {
+    const [firstWeek, ...restWeeks] = weeksDraft;
+    if (!firstWeek) return '<div class="table-wrap"><table></table></div>';
+    const header = weekGridHeaderHtml(`Semana ${firstWeek.weekIndex}`);
+    const body = editableMonthDayRowsHtml(firstWeek.days, firstWeek.startDate, studentsById) + restWeeks.map((week) => {
+      const areaCells = Core.AREAS.map((a) => `<td>${escapeHtml(a.label)}</td>`).join('');
+      const divider = `<tr class="week-divider-row"><td>Semana ${week.weekIndex}</td>${areaCells}</tr>`;
+      return divider + editableMonthDayRowsHtml(week.days, week.startDate, studentsById);
+    }).join('');
+    return `<div class="table-wrap"><table><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
+  }
+
+  function auditMonthDraft(weeksDraft) {
+    const draftStarts = new Set(weeksDraft.map((w) => w.startDate));
+    let history = state.lockedWeeks.filter((w) => !draftStarts.has(w.startDate));
+    const allWarnings = [];
+    weeksDraft.forEach((week) => {
+      const audit = Core.auditWeek(state.students, history, week);
+      audit.warnings.forEach((w) => allWarnings.push({ ...w, weekIndex: week.weekIndex }));
+      history = [...history, week];
+    });
+    return allWarnings;
   }
 
   function renderAudit(audit) {
@@ -336,17 +388,43 @@
         const weeksOfThatMonth = sortedLocked.filter((w) => w.year === lastLocked.year && w.month === lastLocked.month);
         const monthLabel = `${Core.MONTH_NAMES_ES[lastLocked.month - 1]} ${lastLocked.year}`;
         const nextLabel = `${Core.MONTH_NAMES_ES[weekInfo.month - 1]} ${weekInfo.year}`;
-        const editableWeeksHtml = weeksOfThatMonth.map((w) => renderPreviousWeekBlock(w, `Semana ${w.weekIndex}`, 'bloqueada — tocá el switch para editar', 'editando')).join('');
+        const studentsById = Object.fromEntries(state.students.map((s) => [s.id, s]));
+        const editing = editingMonthKey === closedKey;
+
+        const gridHtml = editing
+          ? renderEditableMonthGridTable(editingMonthDraft, studentsById)
+          : renderMonthGridTable(weeksOfThatMonth);
+
+        const auditHtml = editing
+          ? (() => {
+              const warnings = auditMonthDraft(editingMonthDraft);
+              return warnings.length
+                ? warnings.map((w) => `<div class="alert ${w.severity}">Semana ${w.weekIndex}: ${escapeHtml(w.message)}</div>`).join('')
+                : '<div class="alert ok">✓ Sin conflictos ni alertas detectadas en todo el mes.</div>';
+            })()
+          : '';
+
+        const actionsHtml = editing ? `
+            <div class="btn-row">
+              <button class="btn" data-action="save-month-edit">Guardar corrección</button>
+              <button class="btn secondary" data-action="cancel-month-edit">Cancelar</button>
+            </div>` : `
+            <div class="btn-row">
+              <button class="btn" data-action="close-month" data-month-key="${closedKey}">Cerrar calendario mensual</button>
+              <button class="btn small secondary" data-action="start-month-edit" data-month-key="${closedKey}">
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" style="vertical-align:-1px;margin-right:4px;"><path fill="currentColor" d="M12.146.854a.5.5 0 0 1 .708 0l2.292 2.292a.5.5 0 0 1 0 .708L4.708 14.292a.5.5 0 0 1-.233.131l-3.5 1a.5.5 0 0 1-.618-.618l1-3.5a.5.5 0 0 1 .131-.233L12.146.854zM11.207 2.5 13.5 4.793l1.146-1.147L12.354 1.354 11.207 2.5zM2.5 11.707l7-7L11.793 6l-7 7-1.5.429.207-1.722z"/></svg>Corrección
+              </button>
+            </div>`;
+
         el.innerHTML = `
           <div class="card">
             <h2>${escapeHtml(monthLabel)} — mes completo</h2>
-            <p class="muted">Revisá el mes completo antes de pasar a ${escapeHtml(nextLabel)}. Cualquier semana de abajo se puede editar con su switch si hace falta un último ajuste.</p>
-            ${renderMonthGridTable(weeksOfThatMonth)}
-            <div class="btn-row">
-              <button class="btn" data-action="close-month" data-month-key="${closedKey}">Cerrar calendario mensual</button>
-            </div>
+            <p class="muted">${editing ? 'Corrigiendo el mes completo — cualquier celda se puede reasignar directo en la grilla.' : `Revisá el mes completo antes de pasar a ${escapeHtml(nextLabel)}.`}</p>
+            ${auditHtml}
+            ${gridHtml}
+            ${actionsHtml}
           </div>
-          ${editableWeeksHtml}
+          <p class="muted">No se puede generar la semana siguiente hasta cerrar el calendario de este mes.</p>
         `;
         return;
       }
@@ -439,6 +517,42 @@
     saveState();
     renderAll();
     showToast('Mes cerrado. Ya podés generar el próximo.');
+  }
+
+  // Modo "Corrección" del mes recién completado: todo el mes se edita como
+  // una sola grilla continua (no semana por semana).
+  function handleStartMonthEdit(monthKey) {
+    const [y, m] = monthKey.split('-').map(Number);
+    const weeks = sortWeeksAsc(state.lockedWeeks).filter((w) => w.year === y && w.month === m);
+    editingMonthKey = monthKey;
+    editingMonthDraft = JSON.parse(JSON.stringify(weeks));
+    renderGenerar();
+  }
+
+  function handleCancelMonthEdit() {
+    editingMonthKey = null;
+    editingMonthDraft = null;
+    renderGenerar();
+  }
+
+  function handleSetMonthArea(weekStart, date, studentId, area) {
+    const week = editingMonthDraft.find((w) => w.startDate === weekStart);
+    const day = week && week.days.find((d) => d.date === date);
+    const a = day && day.assignments.find((x) => x.studentId === studentId);
+    if (a) a.area = area;
+    renderGenerar();
+  }
+
+  function handleSaveMonthEdit() {
+    editingMonthDraft.forEach((draftWeek) => {
+      const idx = state.lockedWeeks.findIndex((w) => w.startDate === draftWeek.startDate);
+      if (idx !== -1) state.lockedWeeks[idx] = draftWeek;
+    });
+    editingMonthKey = null;
+    editingMonthDraft = null;
+    saveState();
+    renderAll();
+    showToast('Mes corregido y bloqueado de nuevo.');
   }
 
   function handleStartMonthChange(input) {
@@ -1017,6 +1131,9 @@
       else if (action === 'cancel-edit-week') handleEditWeekCancel();
       else if (action === 'delete-previous-week') handleUnlockWeek(btn.dataset.start);
       else if (action === 'close-month') handleCloseMonth(btn.dataset.monthKey);
+      else if (action === 'start-month-edit') handleStartMonthEdit(btn.dataset.monthKey);
+      else if (action === 'cancel-month-edit') handleCancelMonthEdit();
+      else if (action === 'save-month-edit') handleSaveMonthEdit();
     });
     el.addEventListener('change', (e) => {
       if (e.target.id === 'start-month-input') handleStartMonthChange(e.target);
@@ -1026,6 +1143,8 @@
       } else if (e.target.matches('select[data-action="set-area"]')) {
         if (e.target.dataset.target === 'draft') handleEditWeekSetArea(e.target.dataset.date, e.target.dataset.student, e.target.value);
         else handleSetArea(e.target);
+      } else if (e.target.matches('select[data-action="set-month-area"]')) {
+        handleSetMonthArea(e.target.dataset.weekStart, e.target.dataset.date, e.target.dataset.student, e.target.value);
       }
     });
   }
