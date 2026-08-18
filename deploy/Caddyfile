@@ -1,0 +1,17 @@
+# Configuración de Caddy: recibe el tráfico HTTPS de internet (puerto 443,
+# certificado real y gratis vía Let's Encrypt, renovado solo) y se lo pasa
+# al calendario, que sigue corriendo en HTTP normal adentro de la propia
+# máquina (puerto 3000) — nunca expuesto directo a internet.
+#
+# Instalación (ver deploy/GUIA-SERVIDOR-PROPIO.md para el paso a paso
+# completo): reemplazá la primera línea por tu propio subdominio de
+# DuckDNS, copiá este archivo a /etc/caddy/Caddyfile y reiniciá Caddy:
+#
+#   sudo systemctl restart caddy
+#
+# Para agregar otra app más adelante (ej. la de venta de comida), se puede
+# sumar otro bloque como este con otro subdominio, apuntando a otro puerto.
+
+tu-subdominio.duckdns.org {
+	reverse_proxy localhost:3000
+}

@@ -1,0 +1,33 @@
+# Servicio de systemd para que el calendario arranque solo con el
+# servidor y se reinicie solo si se cuelga o si el servidor se reinicia.
+#
+# Instalación (ver deploy/GUIA-SERVIDOR-PROPIO.md para el paso a paso
+# completo): copiar este archivo a /etc/systemd/system/calendario.service,
+# reemplazando las dos líneas marcadas con TU_USUARIO y la ruta real de la
+# carpeta donde está la app, y después:
+#
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable calendario
+#   sudo systemctl start calendario
+#
+# Para ver el estado o los logs:
+#   sudo systemctl status calendario
+#   journalctl -u calendario -f
+
+[Unit]
+Description=Calendario de Limpieza - Hogar Colonia
+After=network.target
+
+[Service]
+Type=simple
+# Reemplazá TU_USUARIO por el usuario de Linux que vas a usar (ej. "pi")
+User=TU_USUARIO
+# Reemplazá esta ruta por la carpeta real donde copiaste la app
+WorkingDirectory=/home/TU_USUARIO/calendario-hogar-colonia
+ExecStart=/usr/bin/node server.js
+Environment=PORT=3000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

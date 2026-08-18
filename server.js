@@ -1,18 +1,23 @@
 /*
- * server.js — servidor local mínimo (solo módulos nativos de Node, sin
+ * server.js — servidor mínimo (solo módulos nativos de Node, sin
  * "npm install"). Sirve la app y guarda el estado compartido en data.json,
- * para que todos los que abran el link (misma red del hogar) vean y editen
- * el MISMO calendario en vez de una copia por navegador.
+ * para que todos los que abran el link (misma red del hogar, o internet si
+ * está desplegado detrás de un proxy HTTPS) vean y editen el MISMO
+ * calendario en vez de una copia por navegador.
  *
  * Acceso restringido: pide usuario/clave (autenticación HTTP básica, la
  * ventana nativa del navegador) antes de dejar pasar CUALQUIER pedido. La
  * clave vive en access-code.txt junto a este archivo — si no existe, se
  * genera una la primera vez que se prende el servidor. Para cambiarla:
- * editá ese archivo y reiniciá el servidor.
+ * editá ese archivo y reiniciá el servidor. También hay un bloqueo
+ * temporal por IP después de varios intentos fallidos seguidos, para
+ * dificultar que alguien la adivine a fuerza bruta.
  *
- * Nota de seguridad honesta: esto alcanza para "que no entre cualquiera en
- * mi wifi", no es seguridad de nivel empresarial (viaja sin cifrar en HTTP
- * plano). Para exponerlo más allá de la red de tu casa hace falta HTTPS.
+ * Nota de seguridad honesta: este servidor en sí mismo habla HTTP plano
+ * (sin cifrar) — alcanza para uso solo-en-tu-WiFi-de-casa. Para exponerlo
+ * a internet (acceso desde cualquier lado) hace falta ponerlo detrás de un
+ * proxy con HTTPS real (ver deploy/Caddyfile) — nunca expongas este puerto
+ * directo a internet sin eso, porque la clave viajaría sin cifrar.
  *
  * Uso: node server.js
  */
@@ -28,16 +33,71 @@ const ACCESS_CODE_FILE = path.join(__dirname, 'access-code.txt');
 const PUBLIC_FILES = new Set(['/index.html', '/styles.css', '/core.js', '/ui.js']);
 const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript', '.json': 'application/json' };
 
+// Código largo y aleatorio (no 4 dígitos) — sobre todo importa si el
+// servidor termina expuesto a internet, donde cualquiera podría intentar
+// adivinarlo a fuerza bruta. Formato en grupos para que se pueda leer y
+// tipear sin tanto lío: ej. "a3f9-08c1-77de-44aa" (64 bits al azar).
 function loadOrCreateAccessCode() {
   try {
     const existing = fs.readFileSync(ACCESS_CODE_FILE, 'utf8').trim();
     if (existing) return existing;
   } catch { /* no existe todavía: se genera abajo */ }
-  const generated = `hogar-${crypto.randomInt(1000, 9999)}`;
+  const hex = crypto.randomBytes(8).toString('hex');
+  const generated = hex.match(/.{1,4}/g).join('-');
   fs.writeFileSync(ACCESS_CODE_FILE, generated);
   return generated;
 }
 const ACCESS_CODE = loadOrCreateAccessCode();
+
+// Bloqueo temporal por IP tras varios intentos fallidos seguidos — sin
+// esto, el código de acceso (por más largo que sea) queda expuesto a
+// fuerza bruta automatizada si el servidor está en internet. En memoria
+// nomás: alcanza para este uso, y se reinicia solo si el proceso reinicia.
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_MS = 10 * 60 * 1000; // 10 minutos
+const failedAttempts = new Map(); // ip -> { count, lockedUntil }
+
+// Si el pedido llega desde un proxy local de confianza (ej. Caddy corriendo
+// en la misma máquina), usa la IP real del cliente que el proxy reenvía en
+// X-Forwarded-For — si no, esa cabecera podría venir falsificada de
+// cualquier lado y no sirve para nada.
+function clientIp(req) {
+  const direct = req.socket.remoteAddress || 'unknown';
+  const fromTrustedProxy = direct === '127.0.0.1' || direct === '::1' || direct === '::ffff:127.0.0.1';
+  if (fromTrustedProxy) {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded) return forwarded.split(',')[0].trim();
+  }
+  return direct;
+}
+
+function isLockedOut(ip) {
+  const entry = failedAttempts.get(ip);
+  return !!(entry && entry.lockedUntil > Date.now());
+}
+
+function registerFailedAttempt(ip) {
+  const entry = failedAttempts.get(ip) || { count: 0, lockedUntil: 0 };
+  entry.count += 1;
+  if (entry.count >= MAX_FAILED_ATTEMPTS) {
+    entry.lockedUntil = Date.now() + LOCKOUT_MS;
+    entry.count = 0;
+  }
+  failedAttempts.set(ip, entry);
+}
+
+function registerSuccess(ip) {
+  failedAttempts.delete(ip);
+}
+
+// Limpieza periódica para que el mapa no crezca sin límite si el servidor
+// queda expuesto a internet y lo golpean bots desde miles de IPs distintas.
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of failedAttempts) {
+    if (entry.count === 0 && entry.lockedUntil < now) failedAttempts.delete(ip);
+  }
+}, 30 * 60 * 1000).unref();
 
 function isAuthorized(req) {
   const header = req.headers.authorization || '';
@@ -54,7 +114,18 @@ function isAuthorized(req) {
 }
 
 function requireAuth(req, res) {
-  if (isAuthorized(req)) return true;
+  const ip = clientIp(req);
+  if (isLockedOut(ip)) {
+    const body = 'Demasiados intentos fallidos desde esta conexión. Esperá unos minutos y volvé a intentar.';
+    res.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '600' });
+    res.end(body);
+    return false;
+  }
+  if (isAuthorized(req)) {
+    registerSuccess(ip);
+    return true;
+  }
+  registerFailedAttempt(ip);
   res.writeHead(401, {
     'WWW-Authenticate': 'Basic realm="Calendario Hogar Colonia"',
     'Content-Type': 'text/plain; charset=utf-8',
