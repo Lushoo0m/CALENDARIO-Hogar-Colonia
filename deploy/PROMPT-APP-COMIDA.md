@@ -39,6 +39,12 @@ infraestructura ya armada y funcionando:
 - Quiero un subdominio propio para esta app (ej. comida.tudominio.duckdns.org)
   y que sea instalable en el celular como una app (PWA — ícono en la
   pantalla de inicio, sin pasar por el navegador).
+- A diferencia del calendario (que es privado, con clave para toda la
+  familia), ESTA app es de cara al público: cualquier cliente tiene que
+  poder entrar al link y ver el menú/hacer un pedido SIN ningún usuario
+  ni contraseña — como cualquier sitio de venta online. La protección con
+  login, si hace falta, va solo del lado del panel donde yo administro el
+  menú y los pedidos, nunca del lado del cliente que solo quiere comprar.
 
 ## Cómo quiero que trabajemos
 

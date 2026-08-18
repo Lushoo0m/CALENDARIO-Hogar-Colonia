@@ -11,6 +11,22 @@ El resultado final: el calendario va a andar en `https://tu-subdominio.duckdns.o
 
 Cualquiera de las dos sirve. Los pasos de abajo son iguales para ambas (asumen Linux — Raspberry Pi OS o Ubuntu Server, ambos gratis).
 
+## Cuánto vas a gastar, en criollo
+
+Para tener el calendario (y otras apps privadas, de uso solo tuyo/familiar) andando en tu propio dominio, con el mínimo gasto posible:
+
+| Concepto | Costo | ¿Hace falta? |
+|---|---|---|
+| La máquina (Raspberry Pi o mini PC) | 100-180 USD, **una sola vez** | Sí |
+| Sistema operativo (Raspberry Pi OS / Ubuntu Server) | Gratis | Sí |
+| Node.js, Caddy, systemd, firewall, fail2ban | Gratis (software libre) | Sí |
+| Dirección en internet — subdominio de DuckDNS (ej. `hogarcolonia.duckdns.org`) | **Gratis, para siempre** | Sí |
+| Certificado HTTPS (Let's Encrypt, vía Caddy) | **Gratis, se renueva solo** | Sí |
+| Electricidad de tener la máquina prendida 24/7 | Unos pocos dólares/pesos por mes (una Raspberry Pi consume como una lamparita chica) | Ya la pagás igual, no es un gasto nuevo importante |
+| Tu internet de casa | Ya lo pagás | No es un gasto nuevo |
+
+**En criollo: pagás la máquina una sola vez, y de ahí en adelante el costo mensual real es prácticamente cero** (unos centavos de luz). No hace falta comprar ningún dominio (`.com`, `.com.ar`, etc.) — el subdominio gratis de DuckDNS cumple exactamente la misma función. Si en algún momento preferís un dominio "lindo" propio (ej. `hogarcolonia.com` en vez de `hogarcolonia.duckdns.org`), eso sí tiene costo (10-15 USD/año), pero es 100% opcional — la app funciona igual de bien sin eso.
+
 ## 1. Preparar la máquina nueva
 
 1. Instalá el sistema operativo (Raspberry Pi OS Lite para la Pi, o Ubuntu Server para un mini PC — el instalador de cada fabricante te guía).
@@ -241,7 +257,80 @@ Elegí "Yes" cuando pregunte — así el sistema se aplica solo los parches de s
    0 3 * * * /home/TU_USUARIO/calendario-hogar-colonia/deploy/backup-data.sh
    ```
 
-Guarda los últimos 30 días en `backups/data-AAAA-MM-DD_HHMM.json`, sin depender de que te acuerdes de exportar a mano. Igual, cada tanto convendría bajarte una copia a tu PC o a Google Drive — un respaldo que vive en la MISMA máquina no sirve de nada si la máquina se rompe o se la roban.
+Guarda los últimos 30 días en `backups/data-AAAA-MM-DD_HHMM.json` (y una copia `latest.json` con nombre fijo), sin depender de que te acuerdes de exportar a mano. Los pasos que siguen abajo llevan esto un paso más allá: guardar los respaldos cifrados en el propio servidor, Y ADEMÁS que una copia llegue sola a tu PC.
+
+## 9. Respaldos: carpeta cifrada en el servidor + copia automática en tu PC
+
+Pediste específicamente que el respaldo diario quede guardado en dos lugares: en un compartimiento cifrado del propio servidor, y en tu PC. Van los dos.
+
+### 9a. Carpeta cifrada en el servidor (gocryptfs)
+
+Una aclaración honesta antes de armar esto, para que sepas exactamente qué te protege y qué no: esta carpeta cifrada protege tus respaldos si alguien **se roba la máquina físicamente** y le saca el disco/tarjeta para leerlo en otra computadora — sin la clave, esos archivos son ilegibles. NO protege contra alguien que ya está **adentro** del servidor corriendo (por ejemplo si lograran esquivar todo lo de la sección 8) — mientras el servidor está prendido y funcionando normal, la carpeta está montada y visible como cualquier otra, porque el propio proceso de respaldo automático necesita poder escribir ahí sin que nadie tenga que tipear una clave a las 3 de la mañana. Es una capa extra contra el robo físico, no un reemplazo de la sección 8 (que es la que te protege de intrusos remotos).
+
+1. Instalá gocryptfs:
+   ```
+   sudo apt install -y gocryptfs
+   ```
+2. Creá la carpeta cifrada y el punto de montaje:
+   ```
+   mkdir -p ~/respaldos-cifrados-raw ~/respaldos-cifrados
+   gocryptfs -init ~/respaldos-cifrados-raw
+   ```
+   Te va a pedir que elijas una contraseña — **anotala en un lugar seguro aparte** (si la perdés, no hay forma de recuperar lo que haya adentro).
+3. Guardá esa contraseña en un archivo con permisos bien restrictivos, para que el respaldo automático de las 3 AM pueda montarla sola sin que nadie esté presente:
+   ```
+   echo "TU_CONTRASEÑA_ELEGIDA" > ~/.respaldos-clave
+   chmod 600 ~/.respaldos-clave
+   ```
+4. Montala (a mano, para probar):
+   ```
+   gocryptfs -passfile ~/.respaldos-clave ~/respaldos-cifrados-raw ~/respaldos-cifrados
+   ```
+   Si andá bien, no te va a pedir nada más y `~/respaldos-cifrados` va a quedar disponible como una carpeta común.
+5. Que se monte sola al prender la máquina — creá `/etc/systemd/system/respaldos-montaje.service`:
+   ```
+   sudo nano /etc/systemd/system/respaldos-montaje.service
+   ```
+   Con este contenido (reemplazando `TU_USUARIO`):
+   ```ini
+   [Unit]
+   Description=Montar carpeta cifrada de respaldos
+   After=local-fs.target
+
+   [Service]
+   Type=forking
+   User=TU_USUARIO
+   ExecStart=/usr/bin/gocryptfs -passfile /home/TU_USUARIO/.respaldos-clave /home/TU_USUARIO/respaldos-cifrados-raw /home/TU_USUARIO/respaldos-cifrados
+   ExecStop=/bin/fusermount -u /home/TU_USUARIO/respaldos-cifrados
+   RemainAfterExit=yes
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   Activalo:
+   ```
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now respaldos-montaje
+   ```
+6. Actualizá la línea de cron del paso anterior para que los respaldos vayan directo ahí adentro:
+   ```
+   crontab -e
+   ```
+   Reemplazá la línea de `backup-data.sh` por:
+   ```
+   0 3 * * * BACKUP_DIR=/home/TU_USUARIO/respaldos-cifrados /home/TU_USUARIO/calendario-hogar-colonia/deploy/backup-data.sh
+   ```
+
+### 9b. Copia automática en tu PC
+
+Como tu PC no está siempre prendida, "todos los días a una hora fija" no es realista — en cambio, la idea es que se baje sola cada vez que prendés la PC y te logueás.
+
+1. En tu PC, si todavía no tenés una clave SSH armada para entrar al servidor, seguí el paso "SSH: entrar con clave" de la sección 8 primero (`pull-backup.bat` la necesita para no pedirte contraseña cada vez).
+2. Abrí `deploy/pull-backup.bat` (viene en la carpeta de la app) con el Bloc de notas y completá las 3 líneas de arriba con tus datos reales: tu usuario del servidor, la dirección (podés usar directamente `tu-subdominio.duckdns.org`), y la ruta de la app en el servidor.
+3. Probalo con doble clic — te tendría que crear una carpeta `Respaldos-Calendario-HogarColonia` en tu usuario de Windows, con el archivo adentro.
+4. Para que se ejecute solo: abrí el **Programador de tareas** de Windows (buscalo en el menú Inicio) → **Crear tarea básica** → nombre "Respaldo Calendario" → **Desencadenador: Al iniciar sesión** (no "Diariamente", porque si la PC está apagada a esa hora se lo pierde) → **Acción: Iniciar un programa** → elegí el archivo `pull-backup.bat`.
+
+Con esto, cada vez que prendés tu PC y entrás a tu usuario de Windows, se baja sola la última copia de los datos — sin que tengas que acordarte de nada.
 
 ## Sobre el repositorio de GitHub
 
