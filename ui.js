@@ -110,9 +110,13 @@
   }
 
   // Estrella de "exoneración": ícono vacío (contorno) por defecto, dorado
-  // con resplandor cuando está marcada. La misma marca `starred` en un
-  // assignment se usa en las grillas editables (clickeable) y en las de
-  // solo lectura (badge, solo se dibuja si está marcada).
+  // con resplandor cuando está marcada. Solo se puede marcar editando una
+  // semana ya bloqueada o corrigiendo un mes cerrado — nunca en la
+  // propuesta nueva, porque es una decisión posterior del supervisor, no
+  // parte de la generación automática. Una vez marcada, ese estudiante
+  // directamente no aparece en las vistas de solo lectura (Calendarios
+  // anteriores, PDF, imagen para compartir): queda exonerado a la vista
+  // de los chicos, aunque el registro interno sigue existiendo.
   const STAR_PATH = 'M12 2.6l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.7l-5.9 3.1 1.13-6.58L2.45 9.54l6.6-.96L12 2.6z';
   function starIconHtml(filled) {
     if (filled) {
@@ -151,7 +155,8 @@
     return days.map((day) => {
       const cellByArea = {};
       day.assignments.forEach((a) => {
-        const nameHtml = `${a.starred ? starIconHtml(true) : ''}${escapeHtml(a.name)}`;
+        if (a.starred) return; // exonerado: no aparece en las vistas de solo lectura
+        const nameHtml = escapeHtml(a.name);
         const existing = cellByArea[a.area];
         cellByArea[a.area] = existing ? `${existing}, ${nameHtml}` : nameHtml;
       });
@@ -269,9 +274,14 @@
         const student = studentsById[a.studentId];
         const elig = student ? Core.eligibleAreas(student) : Core.AREAS;
         const options = elig.map((opt) => `<option value="${opt.id}" ${opt.id === a.area ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('');
+        // La estrella solo se puede agregar editando una semana ya bloqueada
+        // ('draft'), nunca en la propuesta nueva ('proposal').
+        const starBtn = target === 'draft'
+          ? `<button type="button" class="star-toggle ${a.starred ? 'starred' : ''}" data-action="toggle-star" data-date="${day.date}" data-student="${a.studentId}" title="${a.starred ? 'Quitar estrella (exoneración)' : 'Dar estrella (exoneración de limpieza)'}">${starIconHtml(a.starred)}</button>`
+          : '';
         return `<td class="cell-edit">
           <div class="cell-student">
-            <button type="button" class="star-toggle ${a.starred ? 'starred' : ''}" data-action="toggle-star" data-target="${target}" data-date="${day.date}" data-student="${a.studentId}" title="${a.starred ? 'Quitar estrella (exoneración)' : 'Dar estrella (exoneración de limpieza)'}">${starIconHtml(a.starred)}</button>
+            ${starBtn}
             ${escapeHtml(a.name)}
           </div>
           <select class="cell-area-select" data-action="set-area" data-target="${target}" data-date="${day.date}" data-student="${a.studentId}">${options}</select>
@@ -632,23 +642,15 @@
   }
 
   // Estrella de exoneración: marca manual del supervisor, no cambia el
-  // área asignada ni el algoritmo — solo queda como registro visual de
-  // que ese estudiante quedó exonerado de esa limpieza esa semana.
-  // Mismo target dual que set-area: 'draft' = semana anterior en edición,
-  // cualquier otro valor = propuesta actual.
-  function handleToggleStar(target, date, studentId) {
-    const source = target === 'draft' ? editingWeekDraft : state.pendingProposal;
-    if (!source) return;
-    const day = source.days.find((d) => d.date === date);
+  // área asignada ni el algoritmo. Solo se puede tocar editando una semana
+  // ya bloqueada (nunca en la propuesta nueva, ver renderEditableWeekGridTable).
+  function handleToggleStar(date, studentId) {
+    if (!editingWeekDraft) return;
+    const day = editingWeekDraft.days.find((d) => d.date === date);
     const a = day && day.assignments.find((x) => x.studentId === studentId);
     if (!a) return;
     a.starred = !a.starred;
-    if (target === 'draft') {
-      renderAll();
-    } else {
-      saveState();
-      renderGenerar();
-    }
+    renderAll();
   }
 
   // -----------------------------------------------------------------
@@ -1062,7 +1064,6 @@
   // -----------------------------------------------------------------
   const DOW_COLORS = { 1: '#23303f', 2: '#2b2a3f', 3: '#313026', 4: '#2f2620', 5: '#263329', 6: '#332627', 7: '#23282e' };
   const IMG_FONT = '-apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-  const STAR_GOLD = '#ffd23f';
 
   function roundRectPath(ctx, x, y, w, h, r) {
     const radius = Math.min(r, h / 2, w / 2);
@@ -1174,9 +1175,9 @@
       week.days.forEach((day) => {
         const cellByArea = {};
         day.assignments.forEach((a) => {
-          const entry = { name: a.name, starred: !!a.starred };
-          if (cellByArea[a.area]) cellByArea[a.area].push(entry);
-          else cellByArea[a.area] = [entry];
+          if (a.starred) return; // exonerado: no aparece en la imagen
+          const existing = cellByArea[a.area];
+          cellByArea[a.area] = existing ? `${existing}, ${a.name}` : a.name;
         });
 
         ctx.fillStyle = DOW_COLORS[day.dow];
@@ -1209,29 +1210,11 @@
 
         cx += dayColWidth;
         Core.AREAS.forEach((ar) => {
-          const entries = cellByArea[ar.id];
+          const text = cellByArea[ar.id] || '—';
           const maxTextWidth = areaColWidth - 16;
-          if (!entries) {
-            fitFontSize(ctx, '—', maxTextWidth, '400', 12);
-            ctx.fillStyle = MUTED;
-            ctx.fillText('—', cx + 10, y + rowH / 2 + 1);
-          } else {
-            const plainText = entries.map((en) => (en.starred ? `★ ${en.name}` : en.name)).join(', ');
-            const size = fitFontSize(ctx, plainText, maxTextWidth, '400', 12);
-            ctx.font = `400 ${size}px ${IMG_FONT}`;
-            let tx = cx + 10;
-            entries.forEach((en, i) => {
-              if (en.starred) {
-                ctx.fillStyle = STAR_GOLD;
-                ctx.fillText('★ ', tx, y + rowH / 2 + 1);
-                tx += ctx.measureText('★ ').width;
-              }
-              ctx.fillStyle = TEXT;
-              const suffix = i < entries.length - 1 ? `${en.name}, ` : en.name;
-              ctx.fillText(suffix, tx, y + rowH / 2 + 1);
-              tx += ctx.measureText(suffix).width;
-            });
-          }
+          fitFontSize(ctx, text, maxTextWidth, '400', 12);
+          ctx.fillStyle = text === '—' ? MUTED : TEXT;
+          ctx.fillText(text, cx + 10, y + rowH / 2 + 1);
           cx += areaColWidth;
         });
 
@@ -1299,7 +1282,7 @@
       else if (action === 'start-month-edit') handleStartMonthEdit(btn.dataset.monthKey);
       else if (action === 'cancel-month-edit') handleCancelMonthEdit();
       else if (action === 'save-month-edit') handleSaveMonthEdit();
-      else if (action === 'toggle-star') handleToggleStar(btn.dataset.target, btn.dataset.date, btn.dataset.student);
+      else if (action === 'toggle-star') handleToggleStar(btn.dataset.date, btn.dataset.student);
       else if (action === 'toggle-month-star') handleToggleMonthStar(btn.dataset.weekStart, btn.dataset.date, btn.dataset.student);
     });
     el.addEventListener('change', (e) => {
