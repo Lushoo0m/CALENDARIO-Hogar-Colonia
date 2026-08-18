@@ -158,3 +158,120 @@ No hace falta tocar nada de Caddy ni DuckDNS para eso — solo el servicio del c
 - Guardá la clave larga de `access-code.txt` en un lugar seguro (no la mandes por WhatsApp a la vista de cualquiera) — es lo único que separa tu calendario del resto de internet.
 - El servidor ya bloquea automáticamente una dirección durante 10 minutos después de 5 intentos de clave fallidos seguidos, para dificultar que alguien la adivine.
 - Hacé una "Exportar copia completa" cada tanto (desde Estudiantes) y guardala aparte, como respaldo — por más que la máquina esté siempre prendida, un respaldo aparte nunca está de más.
+
+## 8. Endurecer el servidor (para que no puedan "entrar y borrar todo")
+
+Esto es importante hacerlo una sola vez, apenas la máquina esté expuesta a internet — es la diferencia real entre "cualquiera puede intentar entrar" y "prácticamente nadie puede". La clave larga del calendario protege LA APP, pero el sistema operativo de la máquina es una puerta aparte (por SSH) que también hay que cerrar bien.
+
+### Firewall (solo dejar pasar lo necesario)
+
+```
+sudo apt install -y ufw
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw enable
+```
+
+Con esto, cualquier otro puerto queda cerrado a internet de entrada — solo SSH (para vos) y 80/443 (para Caddy).
+
+### SSH: entrar con clave, no con contraseña
+
+Esto es lo más importante de todo: una contraseña de SSH se puede intentar adivinar a fuerza bruta; una clave (par de archivos, uno público y uno privado) prácticamente no.
+
+1. Desde tu PC (no desde el servidor), generá un par de claves si todavía no tenés uno:
+   ```
+   ssh-keygen -t ed25519
+   ```
+   (Enter para todo, dejar sin frase también está bien si tu PC ya está protegida con su propia clave de usuario.)
+2. Copiá tu clave pública al servidor:
+   ```
+   ssh-copy-id TU_USUARIO@IP_DE_LA_MAQUINA
+   ```
+3. Probá que podés entrar SIN que te pida contraseña:
+   ```
+   ssh TU_USUARIO@IP_DE_LA_MAQUINA
+   ```
+4. Recién cuando eso funcione, deshabilitá el login por contraseña en el servidor:
+   ```
+   sudo nano /etc/ssh/sshd_config
+   ```
+   Buscá (o agregá) estas líneas y dejalas así:
+   ```
+   PasswordAuthentication no
+   PermitRootLogin no
+   ```
+   Guardá y reiniciá SSH:
+   ```
+   sudo systemctl restart ssh
+   ```
+
+Desde acá en adelante, sin la clave privada de tu PC, nadie puede entrar por SSH — ni con la contraseña correcta.
+
+### fail2ban (bloquear IPs que insisten)
+
+```
+sudo apt install -y fail2ban
+sudo systemctl enable --now fail2ban
+```
+
+Con la configuración por defecto ya bloquea automáticamente, por un rato, cualquier dirección que falle el login de SSH varias veces seguidas — el mismo concepto que ya tiene el propio calendario para su clave de acceso, pero aplicado a la puerta de entrada del sistema operativo.
+
+### Actualizaciones de seguridad automáticas
+
+```
+sudo apt install -y unattended-upgrades
+sudo dpkg-reconfigure --priority=low unattended-upgrades
+```
+
+Elegí "Yes" cuando pregunte — así el sistema se aplica solo los parches de seguridad, sin que tengas que acordarte de hacerlo a mano.
+
+### Respaldo local automático (aparte del "Exportar copia" manual)
+
+1. Dejá el script `deploy/backup-data.sh` (ya viene en la carpeta de la app) ejecutable:
+   ```
+   chmod +x deploy/backup-data.sh
+   ```
+2. Que corra solo, todos los días a las 3 AM:
+   ```
+   crontab -e
+   ```
+   Y agregá:
+   ```
+   0 3 * * * /home/TU_USUARIO/calendario-hogar-colonia/deploy/backup-data.sh
+   ```
+
+Guarda los últimos 30 días en `backups/data-AAAA-MM-DD_HHMM.json`, sin depender de que te acuerdes de exportar a mano. Igual, cada tanto convendría bajarte una copia a tu PC o a Google Drive — un respaldo que vive en la MISMA máquina no sirve de nada si la máquina se rompe o se la roban.
+
+## Sobre el repositorio de GitHub
+
+Todo lo de arriba protege la máquina; el código en sí vive en GitHub, que es otra puerta aparte:
+
+- Activá verificación en dos pasos (2FA) en tu cuenta de GitHub — es la protección más importante contra que alguien entre a tu cuenta y borre o modifique el repositorio.
+- Mantené el repositorio privado.
+- Nunca compartas ni subas al repositorio ninguna clave (la de acceso del calendario, tokens, etc.) — quedan en archivos que ya están afuera del control de versiones (`data.json`, `access-code.txt`).
+- Aunque alguien lograra borrar código del repositorio, git guarda el historial — casi siempre se puede recuperar. Lo que NO se recupera solo es `data.json` (nunca vive en GitHub) — por eso importan los respaldos de arriba.
+
+## Sumar más apps al mismo servidor (calendario + hogar/finanzas + comida)
+
+Vas a poder tener varias apps corriendo en la misma máquina física, cada una con su propia dirección (subdominio) y, si querés, "instalables" en el celular como accesos directos. Para que un problema en una app no afecte a las demás, la clave es **aislar cada proyecto**, no "cifrarlo" — el cifrado protege que alguien LEA tus datos si roba el disco físico, pero no evita que un programa con una falla borre sus propios archivos. Lo que realmente te protege de que un problema en una app se contagie a las otras es que cada una:
+
+1. **Corra como su propio usuario de Linux**, sin permisos sobre las carpetas de las demás apps (ej. usuario `calendario`, usuario `finanzas`, usuario `comida`, cada uno dueño solo de su propia carpeta).
+2. **Tenga su propio servicio de systemd** (una copia de `calendario.service` por app, con su propio usuario y carpeta).
+3. **Tenga su propio subdominio** en el Caddyfile, cada uno apuntando a un puerto distinto:
+   ```
+   calendario.tudominio.duckdns.org {
+       reverse_proxy localhost:3000
+   }
+   finanzas.tudominio.duckdns.org {
+       reverse_proxy localhost:3001
+   }
+   comida.tudominio.duckdns.org {
+       reverse_proxy localhost:3002
+   }
+   ```
+4. **Tenga su propia clave de acceso**, sin reutilizar la de otra app.
+
+Para la app de comida en particular (la única que va a manejar pedidos/pagos de gente de afuera de tu casa, así que la más expuesta), conviene ir un paso más allá y correrla en su propio **contenedor Docker** — un "sobrecito" aislado que ni siquiera comparte el sistema de archivos con las demás apps, aunque estén en la misma máquina. No hace falta migrar el calendario a Docker (ya funciona bien como está); pero para la app de comida, cuando la armes, es el estándar recomendado. Más abajo tenés un prompt para arrancar ese proyecto ya con esto en mente.
+
+Si además querés protegerte contra el robo físico de la máquina (que alguien se la lleve y le saque el disco), ahí sí entra el cifrado de disco completo (LUKS) — es una capa extra, independiente de todo lo anterior, y opcional.

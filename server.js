@@ -30,8 +30,8 @@ const crypto = require('crypto');
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data.json');
 const ACCESS_CODE_FILE = path.join(__dirname, 'access-code.txt');
-const PUBLIC_FILES = new Set(['/index.html', '/styles.css', '/core.js', '/ui.js']);
-const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript', '.json': 'application/json' };
+const PUBLIC_FILES = new Set(['/index.html', '/styles.css', '/core.js', '/ui.js', '/manifest.json', '/sw.js', '/icon-192.png', '/icon-512.png']);
+const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript', '.json': 'application/json', '.png': 'image/png' };
 
 // Código largo y aleatorio (no 4 dígitos) — sobre todo importa si el
 // servidor termina expuesto a internet, donde cualquiera podría intentar
