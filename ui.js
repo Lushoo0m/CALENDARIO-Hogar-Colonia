@@ -514,30 +514,12 @@
       <p class="muted">El calendario de ese mes siempre arranca el día 1. Una vez que se bloquea la primera semana, los meses siguientes se calculan solos.</p>
     ` : '';
 
-    // "Desbloquear mes y enviar a corrección" — solo tiene sentido para el
-    // ÚLTIMO mes cerrado, y solo si todavía no se generó nada del mes
-    // siguiente (si no, desbloquearlo no lo volvería a mostrar acá).
-    let unlockMonthHtml = '';
-    if (state.closedMonths.length) {
-      const sortedLockedAll = sortWeeksAsc(state.lockedWeeks);
-      const trulyLastLocked = sortedLockedAll[sortedLockedAll.length - 1];
-      const latestClosedKey = [...state.closedMonths].sort().pop();
-      const canUnlock = trulyLastLocked && latestClosedKey === `${trulyLastLocked.year}-${Core.pad2(trulyLastLocked.month)}`;
-      if (canUnlock) {
-        unlockMonthHtml = `
-          <div class="btn-row">
-            <button class="btn small secondary" data-action="unlock-last-month" data-month-key="${latestClosedKey}">Desbloquear mes y enviar a corrección</button>
-          </div>`;
-      }
-    }
-
     el.innerHTML = `
       <div class="card">
         <h2>Próxima semana pendiente</h2>
         ${startPicker}
         <p>${escapeHtml(label)}${isPartial ? ' <span class="badge">semana parcial</span>' : ''}</p>
         <div class="btn-row"><button class="btn" data-action="propose">Proponer semana</button></div>
-        ${unlockMonthHtml}
       </div>
     `;
   }
@@ -625,17 +607,6 @@
     showToast('Mes cerrado. Ya podés generar el próximo.');
   }
 
-  function handleUnlockLastMonth(monthKey) {
-    const [y, m] = monthKey.split('-').map(Number);
-    const monthLabel = `${Core.MONTH_NAMES_ES[m - 1]} ${y}`;
-    const ok = confirm(`¿Desbloquear ${monthLabel} y enviarlo a corrección? Vas a poder editar cualquier semana del mes antes de volver a cerrarlo. Confirmá solo si estás seguro — no es para un click accidental.`);
-    if (!ok) return;
-    state.closedMonths = state.closedMonths.filter((k) => k !== monthKey);
-    saveState();
-    renderAll();
-    showToast(`${monthLabel} desbloqueado — revisalo y volvé a cerrarlo cuando termines.`);
-  }
-
   // Modo "Corrección" del mes recién completado: todo el mes se edita como
   // una sola grilla continua (no semana por semana).
   function handleStartMonthEdit(monthKey) {
@@ -648,18 +619,14 @@
   }
 
   // Botón "Editar" en Calendarios anteriores — para CUALQUIER mes, no solo
-  // el último cerrado (a diferencia de "Corrección" en Generar). Pide una
-  // clave antes de entrar a edición, como freno para que no sea un click
-  // accidental sobre un registro ya cerrado. Es una traba simple del lado
-  // del navegador (no es una contraseña de servidor), pensada para evitar
-  // ediciones casuales, no como seguridad fuerte.
+  // el último cerrado (a diferencia de la vieja "Corrección" en Generar).
+  // Pide confirmación antes de entrar, como freno para que no sea un click
+  // accidental sobre un registro ya cerrado.
   function handleRequestMonthEdit(monthKey) {
-    const pass = prompt('Este mes ya está cerrado. Ingresá la clave para editarlo:');
-    if (pass === null) return;
-    if (pass !== 'Mozhul.288') {
-      showToast('Clave incorrecta.');
-      return;
-    }
+    const [y, m] = monthKey.split('-').map(Number);
+    const monthLabel = `${Core.MONTH_NAMES_ES[m - 1]} ${y}`;
+    const ok = confirm(`¿Estás seguro que querés editar el calendario de ${monthLabel}? Ya está cerrado — confirmá solo si estás seguro, no es para un click accidental.`);
+    if (!ok) return;
     handleStartMonthEdit(monthKey);
   }
 
@@ -1395,7 +1362,6 @@
       else if (action === 'cancel-edit-week') handleEditWeekCancel();
       else if (action === 'delete-previous-week') handleUnlockWeek(btn.dataset.start);
       else if (action === 'close-month') handleCloseMonth(btn.dataset.monthKey);
-      else if (action === 'unlock-last-month') handleUnlockLastMonth(btn.dataset.monthKey);
       else if (action === 'start-month-edit') handleStartMonthEdit(btn.dataset.monthKey);
       else if (action === 'cancel-month-edit') handleCancelMonthEdit();
       else if (action === 'save-month-edit') handleSaveMonthEdit();
