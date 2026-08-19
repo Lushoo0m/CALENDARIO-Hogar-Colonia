@@ -21,6 +21,10 @@
   let expandedMonthKey = null;
   let editingMonthKey = null;
   let editingMonthDraft = null;
+  // Celdas de conflicto (2+ estudiantes en la misma área el mismo día, por
+  // error) que el supervisor tocó para desplegar y corregir una por una.
+  // Solo estado de UI, se resetea al recargar — no forma parte del dato.
+  const expandedConflictCells = new Set();
 
   function defaultState() {
     return {
@@ -125,6 +129,13 @@
     return `<svg class="star-icon" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="${STAR_PATH}" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`;
   }
 
+  // Nombre corto para celdas en conflicto (2+ estudiantes en la misma
+  // área el mismo día, por error): "Joaquín" -> "Joaq...".
+  function abbreviateName(name) {
+    const trimmed = String(name).trim();
+    return trimmed.length <= 4 ? trimmed : `${trimmed.slice(0, 4)}...`;
+  }
+
   function showToast(msg) {
     const t = document.getElementById('toast');
     t.textContent = msg;
@@ -194,6 +205,55 @@
     return `<div class="table-wrap"><table><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
   }
 
+  // Celda editable de Día × Área, compartida entre la propuesta semanal, la
+  // edición de una semana bloqueada y la corrección de un mes. Normalmente
+  // hay un solo estudiante por celda (nombre + selector de área). Si por
+  // error hay 2+ en la misma área el mismo día, se ven abreviados y
+  // agrupados ("Joaq..., Flor...") hasta que se toca la celda: ahí se
+  // despliegan uno por uno, cada uno con su propio selector para corregirlo.
+  // `opts`: { starAction, selectAction, allowStar, extraAttrs(a), cellKeyPrefix }
+  function renderAssignmentCell(assignments, day, ar, studentsById, opts) {
+    if (!assignments.length) return '<td><span class="muted">—</span></td>';
+
+    const starHtml = (a) => (opts.allowStar
+      ? `<button type="button" class="star-toggle ${a.starred ? 'starred' : ''}" data-action="${opts.starAction}" ${opts.extraAttrs(a)} data-date="${day.date}" data-student="${a.studentId}" title="${a.starred ? 'Quitar estrella (exoneración)' : 'Dar estrella (exoneración de limpieza)'}">${starIconHtml(a.starred)}</button>`
+      : '');
+    const selectHtml = (a) => {
+      const student = studentsById[a.studentId];
+      const elig = student ? Core.eligibleAreas(student) : Core.AREAS;
+      const options = elig.map((opt) => `<option value="${opt.id}" ${opt.id === a.area ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('');
+      return `<select class="cell-area-select" data-action="${opts.selectAction}" ${opts.extraAttrs(a)} data-date="${day.date}" data-student="${a.studentId}">${options}</select>`;
+    };
+
+    if (assignments.length === 1) {
+      const a = assignments[0];
+      return `<td class="cell-edit">
+        <div class="cell-student">${starHtml(a)}${escapeHtml(a.name)}</div>
+        ${selectHtml(a)}
+      </td>`;
+    }
+
+    // Conflicto: 2+ estudiantes en la misma área el mismo día.
+    const key = `${opts.cellKeyPrefix}|${day.date}|${ar.id}`;
+    if (!expandedConflictCells.has(key)) {
+      const abbrList = assignments.map((a) => abbreviateName(a.name)).join(', ');
+      return `<td class="cell-edit cell-conflict">
+        <button type="button" class="cell-conflict-summary" data-action="toggle-conflict-cell" data-key="${escapeHtml(key)}" title="${assignments.length} estudiantes en la misma área — tocá para ver y corregir">
+          ⚠ ${escapeHtml(abbrList)}
+        </button>
+      </td>`;
+    }
+    const rows = assignments.map((a) => `
+      <div class="cell-conflict-row">
+        <div class="cell-student">${starHtml(a)}${escapeHtml(a.name)}</div>
+        ${selectHtml(a)}
+      </div>`).join('');
+    return `<td class="cell-edit cell-conflict cell-conflict-open">
+      <button type="button" class="cell-conflict-summary" data-action="toggle-conflict-cell" data-key="${escapeHtml(key)}">⚠ Tocá para agrupar de nuevo</button>
+      ${rows}
+    </td>`;
+  }
+
   // Variante editable de renderMonthGridTable: el mes completo se edita
   // como una única grilla continua (con sus divisores "Semana N"), no
   // semana por semana — usada en el modo "Corrección" del mes recién
@@ -203,22 +263,15 @@
   function editableMonthDayRowsHtml(days, weekStart, studentsById) {
     return days.map((day) => {
       const byArea = {};
-      day.assignments.forEach((a) => { byArea[a.area] = a; });
+      day.assignments.forEach((a) => { (byArea[a.area] = byArea[a.area] || []).push(a); });
       const dateObj = Core.fromISO(day.date);
-      const cells = Core.AREAS.map((ar) => {
-        const a = byArea[ar.id];
-        if (!a) return '<td><span class="muted">—</span></td>';
-        const student = studentsById[a.studentId];
-        const elig = student ? Core.eligibleAreas(student) : Core.AREAS;
-        const options = elig.map((opt) => `<option value="${opt.id}" ${opt.id === a.area ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('');
-        return `<td class="cell-edit">
-          <div class="cell-student">
-            <button type="button" class="star-toggle ${a.starred ? 'starred' : ''}" data-action="toggle-month-star" data-week-start="${weekStart}" data-date="${day.date}" data-student="${a.studentId}" title="${a.starred ? 'Quitar estrella (exoneración)' : 'Dar estrella (exoneración de limpieza)'}">${starIconHtml(a.starred)}</button>
-            ${escapeHtml(a.name)}
-          </div>
-          <select class="cell-area-select" data-action="set-month-area" data-week-start="${weekStart}" data-date="${day.date}" data-student="${a.studentId}">${options}</select>
-        </td>`;
-      }).join('');
+      const cells = Core.AREAS.map((ar) => renderAssignmentCell(byArea[ar.id] || [], day, ar, studentsById, {
+        starAction: 'toggle-month-star',
+        selectAction: 'set-month-area',
+        allowStar: true,
+        extraAttrs: () => `data-week-start="${weekStart}"`,
+        cellKeyPrefix: `month|${weekStart}`,
+      })).join('');
       return `<tr class="dow-${day.dow}"><td><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)}</td>${cells}</tr>`;
     }).join('');
   }
@@ -266,27 +319,17 @@
     const header = `<tr><th>Día</th>${Core.AREAS.map((a) => `<th>${escapeHtml(a.label)}</th>`).join('')}</tr>`;
     const rows = proposal.days.map((day) => {
       const byArea = {};
-      day.assignments.forEach((a) => { byArea[a.area] = a; });
+      day.assignments.forEach((a) => { (byArea[a.area] = byArea[a.area] || []).push(a); });
       const dateObj = Core.fromISO(day.date);
-      const cells = Core.AREAS.map((ar) => {
-        const a = byArea[ar.id];
-        if (!a) return '<td><span class="muted">—</span></td>';
-        const student = studentsById[a.studentId];
-        const elig = student ? Core.eligibleAreas(student) : Core.AREAS;
-        const options = elig.map((opt) => `<option value="${opt.id}" ${opt.id === a.area ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('');
-        // La estrella solo se puede agregar editando una semana ya bloqueada
-        // ('draft'), nunca en la propuesta nueva ('proposal').
-        const starBtn = target === 'draft'
-          ? `<button type="button" class="star-toggle ${a.starred ? 'starred' : ''}" data-action="toggle-star" data-date="${day.date}" data-student="${a.studentId}" title="${a.starred ? 'Quitar estrella (exoneración)' : 'Dar estrella (exoneración de limpieza)'}">${starIconHtml(a.starred)}</button>`
-          : '';
-        return `<td class="cell-edit">
-          <div class="cell-student">
-            ${starBtn}
-            ${escapeHtml(a.name)}
-          </div>
-          <select class="cell-area-select" data-action="set-area" data-target="${target}" data-date="${day.date}" data-student="${a.studentId}">${options}</select>
-        </td>`;
-      }).join('');
+      // La estrella solo se puede agregar editando una semana ya bloqueada
+      // ('draft'), nunca en la propuesta nueva ('proposal').
+      const cells = Core.AREAS.map((ar) => renderAssignmentCell(byArea[ar.id] || [], day, ar, studentsById, {
+        starAction: 'toggle-star',
+        selectAction: 'set-area',
+        allowStar: target === 'draft',
+        extraAttrs: () => `data-target="${target}"`,
+        cellKeyPrefix: `week|${target}|${proposal.startDate}`,
+      })).join('');
       return `<tr class="dow-${day.dow}"><td><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)}</td>${cells}</tr>`;
     }).join('');
     return `<div class="table-wrap"><table>${header}${rows}</table></div>`;
@@ -507,9 +550,8 @@
     renderGenerar();
   }
 
-  function handleRegenerateClick() {
+  function regeneratePendingProposal() {
     const p = state.pendingProposal;
-    if (!p) return;
     const weekInfo = {
       index: p.weekIndex,
       year: p.year,
@@ -519,9 +561,25 @@
       days: p.days.map((d) => Core.fromISO(d.date)),
     };
     state.pendingProposal = Core.generateWeekProposal(state.students, state.lockedWeeks, weekInfo);
+  }
+
+  function handleRegenerateClick() {
+    if (!state.pendingProposal) return;
+    regeneratePendingProposal();
     saveState();
     renderGenerar();
     showToast('Propuesta regenerada automáticamente.');
+  }
+
+  // Si hay una propuesta pendiente (todavía no aprobada) cuando se agrega,
+  // edita o quita un estudiante, esa propuesta quedó calculada con datos
+  // viejos (día fijo, grupo de cocina, alta/baja) — se recalcula sola para
+  // que la pestaña Estudiantes y el Generar queden siempre sincronizados.
+  // Devuelve true si hubo una propuesta para recalcular.
+  function syncPendingProposalAfterStudentChange() {
+    if (!state.pendingProposal) return false;
+    regeneratePendingProposal();
+    return true;
   }
 
   function handleDiscardClick() {
@@ -599,6 +657,14 @@
     const day = week && week.days.find((d) => d.date === date);
     const a = day && day.assignments.find((x) => x.studentId === studentId);
     if (a) a.area = area;
+    renderGenerar();
+  }
+
+  // Despliega/agrupa una celda con 2+ estudiantes en la misma área (error
+  // de asignación) para poder corregirlos uno por uno. Solo estado de UI.
+  function handleToggleConflictCell(key) {
+    if (expandedConflictCells.has(key)) expandedConflictCells.delete(key);
+    else expandedConflictCells.add(key);
     renderGenerar();
   }
 
@@ -780,10 +846,11 @@
       kitchenGroup: kitchenSelect.value,
       active: true,
     });
+    const proposalRefreshed = syncPendingProposalAfterStudentChange();
     saveState();
     renderEstudiantes();
     renderGenerar();
-    showToast(`${name} agregado/a.`);
+    showToast(proposalRefreshed ? `${name} agregado/a y propuesta pendiente recalculada.` : `${name} agregado/a.`);
   }
 
   // -----------------------------------------------------------------
@@ -852,18 +919,23 @@
     const name = nameInput.value.trim();
     if (!name) { showToast('El nombre no puede quedar vacío.'); return; }
     const student = state.students.find((s) => s.id === id);
+    let proposalRefreshed = false;
     if (student) {
+      const newFixedDay = Number(dayInput.value);
+      const newKitchenGroup = kitchenInput.value;
+      const affectsSchedule = student.fixedDay !== newFixedDay || student.kitchenGroup !== newKitchenGroup;
       student.name = name;
       student.fullName = fullNameInput.value.trim() || name;
       student.sex = sexInput.value;
-      student.fixedDay = Number(dayInput.value);
-      student.kitchenGroup = kitchenInput.value;
+      student.fixedDay = newFixedDay;
+      student.kitchenGroup = newKitchenGroup;
+      proposalRefreshed = affectsSchedule && syncPendingProposalAfterStudentChange();
     }
     editingStudentId = null;
     saveState();
     renderEstudiantes();
     renderGenerar();
-    showToast('Estudiante actualizado.');
+    showToast(proposalRefreshed ? 'Estudiante actualizado y propuesta pendiente recalculada.' : 'Estudiante actualizado.');
   }
   function handleDeleteStudent(id) {
     const student = state.students.find((s) => s.id === id);
@@ -871,9 +943,11 @@
     if (!confirm(`¿Quitar la beca a ${student.name}? Esta acción no se puede deshacer. Su historial en semanas ya bloqueadas se conserva, pero dejará de aparecer en el calendario.`)) return;
     state.students = state.students.filter((s) => s.id !== id);
     if (editingStudentId === id) editingStudentId = null;
+    const proposalRefreshed = syncPendingProposalAfterStudentChange();
     saveState();
     renderEstudiantes();
     renderGenerar();
+    if (proposalRefreshed) showToast(`${student.name} quitado/a y propuesta pendiente recalculada.`);
   }
 
   // -----------------------------------------------------------------
@@ -1284,6 +1358,7 @@
       else if (action === 'save-month-edit') handleSaveMonthEdit();
       else if (action === 'toggle-star') handleToggleStar(btn.dataset.date, btn.dataset.student);
       else if (action === 'toggle-month-star') handleToggleMonthStar(btn.dataset.weekStart, btn.dataset.date, btn.dataset.student);
+      else if (action === 'toggle-conflict-cell') handleToggleConflictCell(btn.dataset.key);
     });
     el.addEventListener('change', (e) => {
       if (e.target.id === 'start-month-input') handleStartMonthChange(e.target);

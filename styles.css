@@ -190,6 +190,30 @@ tr.dow-7 { background: color-mix(in srgb, var(--dow-7) 55%, transparent); }
 .cell-student { font-size: 0.82rem; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
 .cell-area-select { width: 100%; font-size: 0.78rem; padding: 4px 6px; }
 
+/* Celda con 2+ estudiantes en la misma área el mismo día (error de
+   asignación): se ve resaltada en ámbar; colapsada muestra nombres
+   abreviados, tocarla la despliega para corregir uno por uno. */
+.cell-conflict { background: var(--warning-bg); }
+.cell-conflict-summary {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0 0 4px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #e8caa0;
+}
+.cell-conflict-summary:hover { text-decoration: underline; }
+.cell-conflict-open .cell-conflict-summary { display: block; }
+.cell-conflict-row {
+  padding-top: 6px;
+  margin-top: 6px;
+  border-top: 1px dashed #4a3d20;
+}
+.cell-conflict-row:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+
 .star-toggle {
   background: none;
   border: none;
