@@ -149,6 +149,13 @@
     return `<tr><th>${escapeHtml(firstColLabel || 'Día')}</th>${Core.AREAS.map((a) => `<th>${escapeHtml(a.label)}</th>`).join('')}</tr>`;
   }
 
+  // Nombre del día + fecha, en una sola línea que nunca se corta (la
+  // columna se ensancha sola si hace falta) — evita que la fecha quede
+  // colgando debajo del nombre en pantallas angostas.
+  function dayCellHeadHtml(day, dateObj) {
+    return `<span class="day-cell-head"><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)}</span>`;
+  }
+
   function weekDayRowsHtml(days) {
     return days.map((day) => {
       const cellByArea = {};
@@ -159,7 +166,7 @@
       });
       const dateObj = Core.fromISO(day.date);
       const cells = Core.AREAS.map((ar) => `<td>${cellByArea[ar.id] || '<span class="muted">—</span>'}</td>`).join('');
-      return `<tr class="dow-${day.dow}"><td><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)}</td>${cells}</tr>`;
+      return `<tr class="dow-${day.dow}"><td>${dayCellHeadHtml(day, dateObj)}</td>${cells}</tr>`;
     }).join('');
   }
 
@@ -292,7 +299,7 @@
       };
       const cells = Core.AREAS.map((ar) => renderAssignmentCell(byArea[ar.id] || [], day, ar, studentsById, cellOpts)).join('');
       const addControl = renderDayAddControl(day, cellOpts);
-      return `<tr class="dow-${day.dow}"><td><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)} ${addControl}</td>${cells}</tr>`;
+      return `<tr class="dow-${day.dow}"><td>${dayCellHeadHtml(day, dateObj)}${addControl}</td>${cells}</tr>`;
     }).join('');
   }
 
@@ -350,7 +357,7 @@
       };
       const cells = Core.AREAS.map((ar) => renderAssignmentCell(byArea[ar.id] || [], day, ar, studentsById, cellOpts)).join('');
       const addControl = renderDayAddControl(day, cellOpts);
-      return `<tr class="dow-${day.dow}"><td><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)} ${addControl}</td>${cells}</tr>`;
+      return `<tr class="dow-${day.dow}"><td>${dayCellHeadHtml(day, dateObj)}${addControl}</td>${cells}</tr>`;
     }).join('');
     return `<div class="table-wrap"><table>${header}${rows}</table></div>`;
   }
