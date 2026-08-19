@@ -1300,9 +1300,9 @@
     ctx.lineWidth = 1;
     ctx.strokeRect(pad + 0.5, y + 0.5, tableWidth - 1, headerH - 1);
     let hx = pad;
-    ctx.fillStyle = MUTED;
     ctx.font = `700 10.5px ${IMG_FONT}`;
-    cols.forEach((c) => {
+    cols.forEach((c, i) => {
+      ctx.fillStyle = i === 0 ? MUTED : '#ffffff';
       ctx.fillText(c.label.toUpperCase(), hx + 10, y + headerH / 2 + 1);
       hx += c.width;
     });
@@ -1320,7 +1320,7 @@
         let dx = pad;
         ctx.font = `700 10px ${IMG_FONT}`;
         cols.forEach((c, i) => {
-          ctx.fillStyle = i === 0 ? TEXT : MUTED;
+          ctx.fillStyle = i === 0 ? TEXT : '#ffffff';
           const label = i === 0 ? `SEMANA ${week.weekIndex}` : c.label.toUpperCase();
           ctx.fillText(label, dx + 10, y + dividerH / 2 + 1);
           dx += c.width;
