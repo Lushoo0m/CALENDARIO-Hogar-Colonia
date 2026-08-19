@@ -776,11 +776,21 @@
           <button class="btn small secondary" data-action="rename" data-id="${s.id}">Editar</button>
           <button class="btn small danger" data-action="delete" data-id="${s.id}">Quitar beca</button>
         `;
+      const coopTagsHtml = `
+        <div class="coop-tags">
+          <button type="button" class="coop-tag ${s.coopTag === 'noncooperative' ? 'active' : ''}" data-action="set-coop-tag" data-id="${s.id}" data-tag="noncooperative" title="No colabora">🎯</button>
+          <button type="button" class="coop-tag ${s.coopTag === 'cooperative' ? 'active' : ''}" data-action="set-coop-tag" data-id="${s.id}" data-tag="cooperative" title="Cooperativo/a">👏</button>
+          <button type="button" class="coop-tag ${s.coopTag === 'neutral' ? 'active' : ''}" data-action="set-coop-tag" data-id="${s.id}" data-tag="neutral" title="Neutral">⚖️</button>
+        </div>`;
+
       return `<div class="student-row ${s.active ? '' : 'inactive'}" data-id="${s.id}">
         <div class="student-main">
-          <button class="student-name-toggle" data-action="toggle-detail" data-id="${s.id}">
-            <span class="student-name">${escapeHtml(s.name)}</span>${tierBadge}
-          </button>
+          <div class="student-name-row">
+            <button class="student-name-toggle" data-action="toggle-detail" data-id="${s.id}">
+              <span class="student-name">${escapeHtml(s.name)}</span>${tierBadge}
+            </button>
+            ${coopTagsHtml}
+          </div>
           ${detailHtml}
         </div>
         <div class="student-actions">${actions}</div>
@@ -896,6 +906,18 @@
   }
 
   function handleToggleDetail(id) { expandedStudentId = expandedStudentId === id ? null : id; renderEstudiantes(); }
+
+  // Etiqueta manual de cooperación (mira/aplausos/balanza) — solo para que
+  // el supervisor identifique de un vistazo quién colabora, quién no y
+  // quién es neutral. No afecta el algoritmo de rotación ni los puntos.
+  // Tocar la misma etiqueta activa la desmarca.
+  function handleSetCoopTag(id, tag) {
+    const student = state.students.find((s) => s.id === id);
+    if (!student) return;
+    student.coopTag = student.coopTag === tag ? null : tag;
+    saveState();
+    renderEstudiantes();
+  }
   function handleRenameStart(id) { editingStudentId = id; renderEstudiantes(); }
   function handleRenameCancel() { editingStudentId = null; renderEstudiantes(); }
   function handleRenameSave(id) {
@@ -1396,6 +1418,7 @@
       else if (action === 'save-rename') handleRenameSave(id);
       else if (action === 'cancel-rename') handleRenameCancel();
       else if (action === 'delete') handleDeleteStudent(id);
+      else if (action === 'set-coop-tag') handleSetCoopTag(id, btn.dataset.tag);
       else if (action === 'export-backup') handleExportBackup();
       else if (action === 'import-backup') handleImportBackupClick();
     });
