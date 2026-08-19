@@ -25,6 +25,9 @@
   // error) que el supervisor tocó para desplegar y corregir una por una.
   // Solo estado de UI, se resetea al recargar — no forma parte del dato.
   const expandedConflictCells = new Set();
+  // Formularios de "agregar estudiante a este día" que el supervisor tocó
+  // para desplegar, en las grillas editables. Solo estado de UI.
+  const expandedDayAddForms = new Set();
 
   function defaultState() {
     return {
@@ -224,11 +227,12 @@
       const options = elig.map((opt) => `<option value="${opt.id}" ${opt.id === a.area ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('');
       return `<select class="cell-area-select" data-action="${opts.selectAction}" ${opts.extraAttrs(a)} data-date="${day.date}" data-student="${a.studentId}">${options}</select>`;
     };
+    const removeHtml = (a) => `<button type="button" class="cell-remove" data-action="${opts.removeAction}" ${opts.extraAttrs(a)} data-date="${day.date}" data-student="${a.studentId}" title="Quitar a ${escapeHtml(a.name)} de este día">✕</button>`;
 
     if (assignments.length === 1) {
       const a = assignments[0];
       return `<td class="cell-edit">
-        <div class="cell-student">${starHtml(a)}${escapeHtml(a.name)}</div>
+        <div class="cell-student">${starHtml(a)}${escapeHtml(a.name)}${removeHtml(a)}</div>
         ${selectHtml(a)}
       </td>`;
     }
@@ -245,13 +249,38 @@
     }
     const rows = assignments.map((a) => `
       <div class="cell-conflict-row">
-        <div class="cell-student">${starHtml(a)}${escapeHtml(a.name)}</div>
+        <div class="cell-student">${starHtml(a)}${escapeHtml(a.name)}${removeHtml(a)}</div>
         ${selectHtml(a)}
       </div>`).join('');
     return `<td class="cell-edit cell-conflict cell-conflict-open">
       <button type="button" class="cell-conflict-summary" data-action="toggle-conflict-cell" data-key="${escapeHtml(key)}">⚠ Tocá para agrupar de nuevo</button>
       ${rows}
     </td>`;
+  }
+
+  // Botón "+" en la celda de fecha de cada fila (grillas editables): abre
+  // un mini-formulario para agregar a un estudiante que ese día no tenía
+  // asignación — necesario cuando cambia el día fijo de alguien y hay que
+  // insertarlo a mano en una semana o mes ya bloqueado.
+  function renderDayAddControl(day, opts) {
+    const key = `${opts.cellKeyPrefix}|${day.date}|add`;
+    const isOpen = expandedDayAddForms.has(key);
+    const toggleBtn = `<button type="button" class="day-add-toggle" data-action="toggle-day-add" data-key="${escapeHtml(key)}" title="${isOpen ? 'Cerrar' : 'Agregar un estudiante a este día'}">${isOpen ? '✕' : '+'}</button>`;
+    if (!isOpen) return toggleBtn;
+
+    const assignedIds = new Set(day.assignments.map((a) => a.studentId));
+    const available = state.students.filter((s) => s.active && !assignedIds.has(s.id));
+    if (!available.length) {
+      return `${toggleBtn}<div class="day-add-form"><p class="muted">No hay más estudiantes activos sin asignar ese día.</p></div>`;
+    }
+    const studentOptions = available.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+    const areaOptions = Core.eligibleAreas(available[0]).map((a) => `<option value="${a.id}">${escapeHtml(a.label)}</option>`).join('');
+    return `${toggleBtn}
+      <div class="day-add-form">
+        <select class="day-add-student">${studentOptions}</select>
+        <select class="day-add-area">${areaOptions}</select>
+        <button type="button" class="btn small" data-action="${opts.addAction}" ${opts.extraAttrs()} data-date="${day.date}">Agregar</button>
+      </div>`;
   }
 
   // Variante editable de renderMonthGridTable: el mes completo se edita
@@ -265,14 +294,18 @@
       const byArea = {};
       day.assignments.forEach((a) => { (byArea[a.area] = byArea[a.area] || []).push(a); });
       const dateObj = Core.fromISO(day.date);
-      const cells = Core.AREAS.map((ar) => renderAssignmentCell(byArea[ar.id] || [], day, ar, studentsById, {
+      const cellOpts = {
         starAction: 'toggle-month-star',
         selectAction: 'set-month-area',
+        removeAction: 'remove-month-assignment',
+        addAction: 'add-month-assignment',
         allowStar: true,
         extraAttrs: () => `data-week-start="${weekStart}"`,
         cellKeyPrefix: `month|${weekStart}`,
-      })).join('');
-      return `<tr class="dow-${day.dow}"><td><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)}</td>${cells}</tr>`;
+      };
+      const cells = Core.AREAS.map((ar) => renderAssignmentCell(byArea[ar.id] || [], day, ar, studentsById, cellOpts)).join('');
+      const addControl = renderDayAddControl(day, cellOpts);
+      return `<tr class="dow-${day.dow}"><td><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)} ${addControl}</td>${cells}</tr>`;
     }).join('');
   }
 
@@ -323,14 +356,18 @@
       const dateObj = Core.fromISO(day.date);
       // La estrella solo se puede agregar editando una semana ya bloqueada
       // ('draft'), nunca en la propuesta nueva ('proposal').
-      const cells = Core.AREAS.map((ar) => renderAssignmentCell(byArea[ar.id] || [], day, ar, studentsById, {
+      const cellOpts = {
         starAction: 'toggle-star',
         selectAction: 'set-area',
+        removeAction: target === 'draft' ? 'edit-week-remove-assignment' : 'remove-assignment',
+        addAction: target === 'draft' ? 'edit-week-add-assignment' : 'add-assignment',
         allowStar: target === 'draft',
         extraAttrs: () => `data-target="${target}"`,
         cellKeyPrefix: `week|${target}|${proposal.startDate}`,
-      })).join('');
-      return `<tr class="dow-${day.dow}"><td><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)}</td>${cells}</tr>`;
+      };
+      const cells = Core.AREAS.map((ar) => renderAssignmentCell(byArea[ar.id] || [], day, ar, studentsById, cellOpts)).join('');
+      const addControl = renderDayAddControl(day, cellOpts);
+      return `<tr class="dow-${day.dow}"><td><span class="day-pill dow-${day.dow}">${Core.DOW_NAMES_ES[day.dow - 1]}</span> ${Core.formatDateEs(dateObj)} ${addControl}</td>${cells}</tr>`;
     }).join('');
     return `<div class="table-wrap"><table>${header}${rows}</table></div>`;
   }
@@ -656,6 +693,32 @@
     renderAll();
   }
 
+  // Despliega/cierra el mini-formulario de "agregar estudiante a este día".
+  // Solo estado de UI.
+  function handleToggleDayAddForm(key) {
+    if (expandedDayAddForms.has(key)) expandedDayAddForms.delete(key);
+    else expandedDayAddForms.add(key);
+    renderAll();
+  }
+
+  function handleAddMonthAssignment(weekStart, date, studentId, area) {
+    const week = editingMonthDraft.find((w) => w.startDate === weekStart);
+    const day = week && week.days.find((d) => d.date === date);
+    const student = state.students.find((s) => s.id === studentId);
+    if (!day || !student) return;
+    day.assignments.push({ studentId, name: student.name, area, starred: false });
+    expandedDayAddForms.delete(`month|${weekStart}|${date}|add`);
+    renderAll();
+  }
+
+  function handleRemoveMonthAssignment(weekStart, date, studentId) {
+    const week = editingMonthDraft.find((w) => w.startDate === weekStart);
+    const day = week && week.days.find((d) => d.date === date);
+    if (!day) return;
+    day.assignments = day.assignments.filter((a) => a.studentId !== studentId);
+    renderAll();
+  }
+
   function handleToggleMonthStar(weekStart, date, studentId) {
     const week = editingMonthDraft.find((w) => w.startDate === weekStart);
     const day = week && week.days.find((d) => d.date === date);
@@ -691,6 +754,24 @@
     const day = state.pendingProposal.days.find((d) => d.date === date);
     const a = day && day.assignments.find((x) => x.studentId === student);
     if (a) a.area = area;
+    saveState();
+    renderGenerar();
+  }
+
+  function handleAddAssignment(date, studentId, area) {
+    const day = state.pendingProposal.days.find((d) => d.date === date);
+    const student = state.students.find((s) => s.id === studentId);
+    if (!day || !student) return;
+    day.assignments.push({ studentId, name: student.name, area, starred: false });
+    expandedDayAddForms.delete(`week|proposal|${state.pendingProposal.startDate}|${date}|add`);
+    saveState();
+    renderGenerar();
+  }
+
+  function handleRemoveAssignment(date, studentId) {
+    const day = state.pendingProposal.days.find((d) => d.date === date);
+    if (!day) return;
+    day.assignments = day.assignments.filter((a) => a.studentId !== studentId);
     saveState();
     renderGenerar();
   }
@@ -1107,6 +1188,22 @@
     if (a) a.area = area;
     renderAll();
   }
+
+  function handleEditWeekAddAssignment(date, studentId, area) {
+    const day = editingWeekDraft.days.find((d) => d.date === date);
+    const student = state.students.find((s) => s.id === studentId);
+    if (!day || !student) return;
+    day.assignments.push({ studentId, name: student.name, area, starred: false });
+    expandedDayAddForms.delete(`week|draft|${editingWeekDraft.startDate}|${date}|add`);
+    renderAll();
+  }
+
+  function handleEditWeekRemoveAssignment(date, studentId) {
+    const day = editingWeekDraft.days.find((d) => d.date === date);
+    if (!day) return;
+    day.assignments = day.assignments.filter((a) => a.studentId !== studentId);
+    renderAll();
+  }
   function handleEditWeekSave() {
     const idx = state.lockedWeeks.findIndex((w) => w.startDate === editingWeekStart);
     if (idx === -1) return;
@@ -1390,6 +1487,18 @@
       else if (action === 'toggle-star') handleToggleStar(btn.dataset.date, btn.dataset.student);
       else if (action === 'toggle-month-star') handleToggleMonthStar(btn.dataset.weekStart, btn.dataset.date, btn.dataset.student);
       else if (action === 'toggle-conflict-cell') handleToggleConflictCell(btn.dataset.key);
+      else if (action === 'toggle-day-add') handleToggleDayAddForm(btn.dataset.key);
+      else if (action === 'remove-assignment') handleRemoveAssignment(btn.dataset.date, btn.dataset.student);
+      else if (action === 'edit-week-remove-assignment') handleEditWeekRemoveAssignment(btn.dataset.date, btn.dataset.student);
+      else if (action === 'remove-month-assignment') handleRemoveMonthAssignment(btn.dataset.weekStart, btn.dataset.date, btn.dataset.student);
+      else if (action === 'add-assignment' || action === 'edit-week-add-assignment' || action === 'add-month-assignment') {
+        const form = btn.closest('.day-add-form');
+        const studentId = form.querySelector('.day-add-student').value;
+        const area = form.querySelector('.day-add-area').value;
+        if (action === 'add-assignment') handleAddAssignment(btn.dataset.date, studentId, area);
+        else if (action === 'edit-week-add-assignment') handleEditWeekAddAssignment(btn.dataset.date, studentId, area);
+        else handleAddMonthAssignment(btn.dataset.weekStart, btn.dataset.date, studentId, area);
+      }
     });
     el.addEventListener('change', (e) => {
       if (e.target.id === 'start-month-input') handleStartMonthChange(e.target);
@@ -1401,8 +1510,20 @@
         else handleSetArea(e.target);
       } else if (e.target.matches('select[data-action="set-month-area"]')) {
         handleSetMonthArea(e.target.dataset.weekStart, e.target.dataset.date, e.target.dataset.student, e.target.value);
+      } else if (e.target.matches('select.day-add-student')) {
+        updateDayAddAreaOptions(e.target);
       }
     });
+  }
+
+  // Al cambiar el estudiante elegido en el mini-formulario de "agregar",
+  // recalcula las áreas del select vecino según a qué puede limpiar ese
+  // estudiante en particular (mismo criterio que el resto de los selects).
+  function updateDayAddAreaOptions(studentSelect) {
+    const student = state.students.find((s) => s.id === studentSelect.value);
+    const areaSelect = studentSelect.closest('.day-add-form').querySelector('.day-add-area');
+    const elig = student ? Core.eligibleAreas(student) : Core.AREAS;
+    areaSelect.innerHTML = elig.map((opt) => `<option value="${opt.id}">${escapeHtml(opt.label)}</option>`).join('');
   }
 
   function initEstudiantesEvents() {
@@ -1441,10 +1562,20 @@
       else if (action === 'cancel-month-edit') handleCancelMonthEdit();
       else if (action === 'toggle-month-star') handleToggleMonthStar(btn.dataset.weekStart, btn.dataset.date, btn.dataset.student);
       else if (action === 'toggle-conflict-cell') handleToggleConflictCell(btn.dataset.key);
+      else if (action === 'toggle-day-add') handleToggleDayAddForm(btn.dataset.key);
+      else if (action === 'remove-month-assignment') handleRemoveMonthAssignment(btn.dataset.weekStart, btn.dataset.date, btn.dataset.student);
+      else if (action === 'add-month-assignment') {
+        const form = btn.closest('.day-add-form');
+        const studentId = form.querySelector('.day-add-student').value;
+        const area = form.querySelector('.day-add-area').value;
+        handleAddMonthAssignment(btn.dataset.weekStart, btn.dataset.date, studentId, area);
+      }
     });
     el.addEventListener('change', (e) => {
       if (e.target.matches('select[data-action="set-month-area"]')) {
         handleSetMonthArea(e.target.dataset.weekStart, e.target.dataset.date, e.target.dataset.student, e.target.value);
+      } else if (e.target.matches('select.day-add-student')) {
+        updateDayAddAreaOptions(e.target);
       }
     });
   }

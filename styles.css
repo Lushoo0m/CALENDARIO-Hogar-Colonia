@@ -214,6 +214,26 @@ tr.dow-7 { background: color-mix(in srgb, var(--dow-7) 55%, transparent); }
 }
 .cell-conflict-row:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
 
+/* Quitar a un estudiante de un día (dentro de una celda editable). */
+.cell-remove {
+  background: none; border: none; padding: 0 2px; margin-left: auto;
+  cursor: pointer; font-size: 0.7rem; line-height: 1; color: var(--muted);
+}
+.cell-remove:hover { color: #edb7bf; }
+
+/* Botón "+" en la celda de fecha (grillas editables) para agregar a un
+   estudiante que ese día no tenía asignación, y el mini-formulario que
+   despliega. */
+.day-add-toggle {
+  background: none; border: 1px solid var(--border); border-radius: 999px;
+  width: 18px; height: 18px; line-height: 1; padding: 0; margin-left: 6px;
+  cursor: pointer; color: var(--muted); font-size: 0.78rem;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.day-add-toggle:hover { color: var(--text); border-color: var(--text); }
+.day-add-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.day-add-form select { font-size: 0.78rem; padding: 4px 6px; }
+
 .star-toggle {
   background: none;
   border: none;
