@@ -643,21 +643,42 @@
     const weeks = sortWeeksAsc(state.lockedWeeks).filter((w) => w.year === y && w.month === m);
     editingMonthKey = monthKey;
     editingMonthDraft = JSON.parse(JSON.stringify(weeks));
-    renderGenerar();
+    expandedMonthKey = monthKey;
+    renderAll();
+  }
+
+  // Botón "Editar" en Calendarios anteriores — para CUALQUIER mes, no solo
+  // el último cerrado (a diferencia de "Corrección" en Generar). Pide una
+  // clave antes de entrar a edición, como freno para que no sea un click
+  // accidental sobre un registro ya cerrado. Es una traba simple del lado
+  // del navegador (no es una contraseña de servidor), pensada para evitar
+  // ediciones casuales, no como seguridad fuerte.
+  function handleRequestMonthEdit(monthKey) {
+    const pass = prompt('Este mes ya está cerrado. Ingresá la clave para editarlo:');
+    if (pass === null) return;
+    if (pass !== 'Mozhul.288') {
+      showToast('Clave incorrecta.');
+      return;
+    }
+    handleStartMonthEdit(monthKey);
   }
 
   function handleCancelMonthEdit() {
     editingMonthKey = null;
     editingMonthDraft = null;
-    renderGenerar();
+    renderAll();
   }
 
+  // Estas tres tocan el borrador de corrección de mes (editingMonthDraft),
+  // que ahora puede estar visible tanto en Generar como en Calendarios
+  // anteriores (botón "Editar") — por eso re-renderizan con renderAll() en
+  // vez de solo renderGenerar(), para que la otra pestaña quede al día.
   function handleSetMonthArea(weekStart, date, studentId, area) {
     const week = editingMonthDraft.find((w) => w.startDate === weekStart);
     const day = week && week.days.find((d) => d.date === date);
     const a = day && day.assignments.find((x) => x.studentId === studentId);
     if (a) a.area = area;
-    renderGenerar();
+    renderAll();
   }
 
   // Despliega/agrupa una celda con 2+ estudiantes en la misma área (error
@@ -665,7 +686,7 @@
   function handleToggleConflictCell(key) {
     if (expandedConflictCells.has(key)) expandedConflictCells.delete(key);
     else expandedConflictCells.add(key);
-    renderGenerar();
+    renderAll();
   }
 
   function handleToggleMonthStar(weekStart, date, studentId) {
@@ -674,7 +695,7 @@
     const a = day && day.assignments.find((x) => x.studentId === studentId);
     if (!a) return;
     a.starred = !a.starred;
-    renderGenerar();
+    renderAll();
   }
 
   function handleSaveMonthEdit() {
@@ -997,8 +1018,25 @@
       const label = `${Core.MONTH_NAMES_ES[m - 1]} ${y}`;
       const dateRange = `${Core.formatDateEs(Core.fromISO(weeksOfMonth[0].startDate))} – ${Core.formatDateEs(Core.fromISO(weeksOfMonth[weeksOfMonth.length - 1].endDate))}`;
       const isOpen = expandedMonthKey === key;
+      const editingThisMonth = editingMonthKey === key;
 
-      const bodyHtml = isOpen ? `
+      const buildEditBodyHtml = () => {
+        const warnings = auditMonthDraft(editingMonthDraft);
+        const auditHtml = warnings.length
+          ? warnings.map((w) => `<div class="alert ${w.severity}">Semana ${w.weekIndex}: ${escapeHtml(w.message)}</div>`).join('')
+          : '<div class="alert ok">✓ Sin conflictos ni alertas detectadas en todo el mes.</div>';
+        return `
+        <div class="month-card-body">
+          ${auditHtml}
+          ${renderEditableMonthGridTable(editingMonthDraft, studentsById)}
+          <div class="btn-row">
+            <button class="btn" data-action="save-month-edit">Guardar corrección</button>
+            <button class="btn secondary" data-action="cancel-month-edit">Cancelar</button>
+          </div>
+        </div>`;
+      };
+
+      const viewBodyHtml = `
         <div class="month-card-body">
           ${renderMonthGridTable(weeksOfMonth)}
           <div class="btn-row">
@@ -1010,9 +1048,14 @@
               <svg class="icon-download" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3zm1.5.5v6.6l2.6-2.4a.75.75 0 0 1 1 0l2 1.85 1.9-1.75a.75.75 0 0 1 1 0l1.5 1.4V3.5h-10zm0 9v-.66l3.1-2.87 4.9 4.53H3.5zm9-.06-2.02-1.87 2.02-1.86v3.73zM5.5 6.2a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/></svg>
               Imagen
             </button>
+            <button class="btn small secondary" data-action="request-month-edit" data-month-key="${key}">
+              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" style="vertical-align:-1px;margin-right:4px;"><path fill="currentColor" d="M12.146.854a.5.5 0 0 1 .708 0l2.292 2.292a.5.5 0 0 1 0 .708L4.708 14.292a.5.5 0 0 1-.233.131l-3.5 1a.5.5 0 0 1-.618-.618l1-3.5a.5.5 0 0 1 .131-.233L12.146.854zM11.207 2.5 13.5 4.793l1.146-1.147L12.354 1.354 11.207 2.5zM2.5 11.707l7-7L11.793 6l-7 7-1.5.429.207-1.722z"/></svg>
+              Editar
+            </button>
           </div>
-        </div>
-      ` : '';
+        </div>`;
+
+      const bodyHtml = isOpen ? (editingThisMonth ? buildEditBodyHtml() : viewBodyHtml) : '';
 
       return `<div class="week-card card month-card ${isOpen ? 'open' : ''}">
         <button type="button" class="month-toggle" data-action="toggle-month" data-month-key="${key}" aria-expanded="${isOpen}">
@@ -1404,6 +1447,16 @@
       if (action === 'print-month') handlePrintMonth(btn.dataset.monthKey);
       else if (action === 'download-image') handleDownloadMonthImage(btn.dataset.monthKey);
       else if (action === 'toggle-month') handleToggleMonth(btn.dataset.monthKey);
+      else if (action === 'request-month-edit') handleRequestMonthEdit(btn.dataset.monthKey);
+      else if (action === 'save-month-edit') handleSaveMonthEdit();
+      else if (action === 'cancel-month-edit') handleCancelMonthEdit();
+      else if (action === 'toggle-month-star') handleToggleMonthStar(btn.dataset.weekStart, btn.dataset.date, btn.dataset.student);
+      else if (action === 'toggle-conflict-cell') handleToggleConflictCell(btn.dataset.key);
+    });
+    el.addEventListener('change', (e) => {
+      if (e.target.matches('select[data-action="set-month-area"]')) {
+        handleSetMonthArea(e.target.dataset.weekStart, e.target.dataset.date, e.target.dataset.student, e.target.value);
+      }
     });
   }
 
