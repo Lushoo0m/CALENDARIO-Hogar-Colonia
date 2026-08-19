@@ -225,9 +225,9 @@ tr.dow-7 { background: color-mix(in srgb, var(--dow-7) 55%, transparent); }
    despliega. */
 .day-add-toggle {
   background: none; border: 1px solid var(--ok); border-radius: 999px;
-  width: 18px; height: 18px; line-height: 1; padding: 0; margin-left: 6px;
+  width: 18px; height: 18px; line-height: 1; padding: 0; margin: 8px 0 0;
   cursor: pointer; color: var(--ok); font-size: 0.78rem;
-  display: inline-flex; align-items: center; justify-content: center;
+  display: flex; align-items: center; justify-content: center;
 }
 .day-add-toggle:hover { color: var(--text); border-color: var(--text); }
 .day-add-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }

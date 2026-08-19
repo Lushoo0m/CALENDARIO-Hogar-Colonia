@@ -249,11 +249,20 @@
     if (!isOpen) return toggleBtn;
 
     const assignedIds = new Set(day.assignments.map((a) => a.studentId));
-    const available = state.students.filter((s) => s.active && !assignedIds.has(s.id));
+    const available = state.students
+      .filter((s) => s.active && !assignedIds.has(s.id))
+      .sort((a, b) => a.name.localeCompare(b.name, 'es'));
     if (!available.length) {
       return `${toggleBtn}<div class="day-add-form"><p class="muted">No hay más estudiantes activos sin asignar ese día.</p></div>`;
     }
-    const studentOptions = available.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+    // Nombre + símbolo de sexo y color (celeste para varones, rosa fuerte
+    // para mujeres) solo acá, para identificar a cada uno de un vistazo al
+    // elegir a quién agregar — no afecta cómo se ven en el resto de la app.
+    const studentOptions = available.map((s) => {
+      const symbol = sexSymbol(s.sex);
+      const colorStyle = s.sex === 'M' ? ' style="color:#5ec8f2"' : s.sex === 'F' ? ' style="color:#ff4fa6"' : '';
+      return `<option value="${s.id}"${colorStyle}>${escapeHtml(s.name)}${symbol ? ` ${symbol}` : ''}</option>`;
+    }).join('');
     const areaOptions = Core.eligibleAreas(available[0]).map((a) => `<option value="${a.id}">${escapeHtml(a.label)}</option>`).join('');
     return `${toggleBtn}
       <div class="day-add-form">
