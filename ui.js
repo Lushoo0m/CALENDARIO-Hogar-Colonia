@@ -116,22 +116,6 @@
     return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
-  // Estrella de "exoneración": ícono vacío (contorno) por defecto, dorado
-  // con resplandor cuando está marcada. Solo se puede marcar editando una
-  // semana ya bloqueada o corrigiendo un mes cerrado — nunca en la
-  // propuesta nueva, porque es una decisión posterior del supervisor, no
-  // parte de la generación automática. Una vez marcada, ese estudiante
-  // directamente no aparece en las vistas de solo lectura (Calendarios
-  // anteriores, PDF, imagen para compartir): queda exonerado a la vista
-  // de los chicos, aunque el registro interno sigue existiendo.
-  const STAR_PATH = 'M12 2.6l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.7l-5.9 3.1 1.13-6.58L2.45 9.54l6.6-.96L12 2.6z';
-  function starIconHtml(filled) {
-    if (filled) {
-      return `<svg class="star-icon star-filled" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="${STAR_PATH}" fill="#ffd23f" stroke="#ffd23f" stroke-width="1"/></svg>`;
-    }
-    return `<svg class="star-icon" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="${STAR_PATH}" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`;
-  }
-
   // Nombre corto para celdas en conflicto (2+ estudiantes en la misma
   // área el mismo día, por error): "Joaquín" -> "Joaq...".
   function abbreviateName(name) {
@@ -169,7 +153,6 @@
     return days.map((day) => {
       const cellByArea = {};
       day.assignments.forEach((a) => {
-        if (a.starred) return; // exonerado: no aparece en las vistas de solo lectura
         const nameHtml = escapeHtml(a.name);
         const existing = cellByArea[a.area];
         cellByArea[a.area] = existing ? `${existing}, ${nameHtml}` : nameHtml;
@@ -214,13 +197,10 @@
   // error hay 2+ en la misma área el mismo día, se ven abreviados y
   // agrupados ("Joaq..., Flor...") hasta que se toca la celda: ahí se
   // despliegan uno por uno, cada uno con su propio selector para corregirlo.
-  // `opts`: { starAction, selectAction, allowStar, extraAttrs(a), cellKeyPrefix }
+  // `opts`: { selectAction, removeAction, extraAttrs(a), cellKeyPrefix }
   function renderAssignmentCell(assignments, day, ar, studentsById, opts) {
     if (!assignments.length) return '<td><span class="muted">—</span></td>';
 
-    const starHtml = (a) => (opts.allowStar
-      ? `<button type="button" class="star-toggle ${a.starred ? 'starred' : ''}" data-action="${opts.starAction}" ${opts.extraAttrs(a)} data-date="${day.date}" data-student="${a.studentId}" title="${a.starred ? 'Quitar estrella (exoneración)' : 'Dar estrella (exoneración de limpieza)'}">${starIconHtml(a.starred)}</button>`
-      : '');
     const selectHtml = (a) => {
       const student = studentsById[a.studentId];
       const elig = student ? Core.eligibleAreas(student) : Core.AREAS;
@@ -232,7 +212,7 @@
     if (assignments.length === 1) {
       const a = assignments[0];
       return `<td class="cell-edit">
-        <div class="cell-student">${starHtml(a)}${escapeHtml(a.name)}${removeHtml(a)}</div>
+        <div class="cell-student">${escapeHtml(a.name)}${removeHtml(a)}</div>
         ${selectHtml(a)}
       </td>`;
     }
@@ -249,7 +229,7 @@
     }
     const rows = assignments.map((a) => `
       <div class="cell-conflict-row">
-        <div class="cell-student">${starHtml(a)}${escapeHtml(a.name)}${removeHtml(a)}</div>
+        <div class="cell-student">${escapeHtml(a.name)}${removeHtml(a)}</div>
         ${selectHtml(a)}
       </div>`).join('');
     return `<td class="cell-edit cell-conflict cell-conflict-open">
@@ -295,11 +275,9 @@
       day.assignments.forEach((a) => { (byArea[a.area] = byArea[a.area] || []).push(a); });
       const dateObj = Core.fromISO(day.date);
       const cellOpts = {
-        starAction: 'toggle-month-star',
         selectAction: 'set-month-area',
         removeAction: 'remove-month-assignment',
         addAction: 'add-month-assignment',
-        allowStar: true,
         extraAttrs: () => `data-week-start="${weekStart}"`,
         cellKeyPrefix: `month|${weekStart}`,
       };
@@ -354,14 +332,10 @@
       const byArea = {};
       day.assignments.forEach((a) => { (byArea[a.area] = byArea[a.area] || []).push(a); });
       const dateObj = Core.fromISO(day.date);
-      // La estrella solo se puede agregar editando una semana ya bloqueada
-      // ('draft'), nunca en la propuesta nueva ('proposal').
       const cellOpts = {
-        starAction: 'toggle-star',
         selectAction: 'set-area',
         removeAction: target === 'draft' ? 'edit-week-remove-assignment' : 'remove-assignment',
         addAction: target === 'draft' ? 'edit-week-add-assignment' : 'add-assignment',
-        allowStar: target === 'draft',
         extraAttrs: () => `data-target="${target}"`,
         cellKeyPrefix: `week|${target}|${proposal.startDate}`,
       };
@@ -625,7 +599,7 @@
       days: proposal.days.map((d) => ({
         date: d.date,
         dow: d.dow,
-        assignments: d.assignments.map((a) => ({ studentId: a.studentId, name: a.name, area: a.area, starred: !!a.starred })),
+        assignments: d.assignments.map((a) => ({ studentId: a.studentId, name: a.name, area: a.area })),
       })),
       approvedAt: new Date().toISOString(),
     });
@@ -706,7 +680,7 @@
     const day = week && week.days.find((d) => d.date === date);
     const student = state.students.find((s) => s.id === studentId);
     if (!day || !student) return;
-    day.assignments.push({ studentId, name: student.name, area, starred: false });
+    day.assignments.push({ studentId, name: student.name, area });
     expandedDayAddForms.delete(`month|${weekStart}|${date}|add`);
     renderAll();
   }
@@ -716,15 +690,6 @@
     const day = week && week.days.find((d) => d.date === date);
     if (!day) return;
     day.assignments = day.assignments.filter((a) => a.studentId !== studentId);
-    renderAll();
-  }
-
-  function handleToggleMonthStar(weekStart, date, studentId) {
-    const week = editingMonthDraft.find((w) => w.startDate === weekStart);
-    const day = week && week.days.find((d) => d.date === date);
-    const a = day && day.assignments.find((x) => x.studentId === studentId);
-    if (!a) return;
-    a.starred = !a.starred;
     renderAll();
   }
 
@@ -762,7 +727,7 @@
     const day = state.pendingProposal.days.find((d) => d.date === date);
     const student = state.students.find((s) => s.id === studentId);
     if (!day || !student) return;
-    day.assignments.push({ studentId, name: student.name, area, starred: false });
+    day.assignments.push({ studentId, name: student.name, area });
     expandedDayAddForms.delete(`week|proposal|${state.pendingProposal.startDate}|${date}|add`);
     saveState();
     renderGenerar();
@@ -774,18 +739,6 @@
     day.assignments = day.assignments.filter((a) => a.studentId !== studentId);
     saveState();
     renderGenerar();
-  }
-
-  // Estrella de exoneración: marca manual del supervisor, no cambia el
-  // área asignada ni el algoritmo. Solo se puede tocar editando una semana
-  // ya bloqueada (nunca en la propuesta nueva, ver renderEditableWeekGridTable).
-  function handleToggleStar(date, studentId) {
-    if (!editingWeekDraft) return;
-    const day = editingWeekDraft.days.find((d) => d.date === date);
-    const a = day && day.assignments.find((x) => x.studentId === studentId);
-    if (!a) return;
-    a.starred = !a.starred;
-    renderAll();
   }
 
   // -----------------------------------------------------------------
@@ -1193,7 +1146,7 @@
     const day = editingWeekDraft.days.find((d) => d.date === date);
     const student = state.students.find((s) => s.id === studentId);
     if (!day || !student) return;
-    day.assignments.push({ studentId, name: student.name, area, starred: false });
+    day.assignments.push({ studentId, name: student.name, area });
     expandedDayAddForms.delete(`week|draft|${editingWeekDraft.startDate}|${date}|add`);
     renderAll();
   }
@@ -1378,7 +1331,6 @@
       week.days.forEach((day) => {
         const cellByArea = {};
         day.assignments.forEach((a) => {
-          if (a.starred) return; // exonerado: no aparece en la imagen
           const existing = cellByArea[a.area];
           cellByArea[a.area] = existing ? `${existing}, ${a.name}` : a.name;
         });
@@ -1484,8 +1436,6 @@
       else if (action === 'start-month-edit') handleStartMonthEdit(btn.dataset.monthKey);
       else if (action === 'cancel-month-edit') handleCancelMonthEdit();
       else if (action === 'save-month-edit') handleSaveMonthEdit();
-      else if (action === 'toggle-star') handleToggleStar(btn.dataset.date, btn.dataset.student);
-      else if (action === 'toggle-month-star') handleToggleMonthStar(btn.dataset.weekStart, btn.dataset.date, btn.dataset.student);
       else if (action === 'toggle-conflict-cell') handleToggleConflictCell(btn.dataset.key);
       else if (action === 'toggle-day-add') handleToggleDayAddForm(btn.dataset.key);
       else if (action === 'remove-assignment') handleRemoveAssignment(btn.dataset.date, btn.dataset.student);
@@ -1560,7 +1510,6 @@
       else if (action === 'request-month-edit') handleRequestMonthEdit(btn.dataset.monthKey);
       else if (action === 'save-month-edit') handleSaveMonthEdit();
       else if (action === 'cancel-month-edit') handleCancelMonthEdit();
-      else if (action === 'toggle-month-star') handleToggleMonthStar(btn.dataset.weekStart, btn.dataset.date, btn.dataset.student);
       else if (action === 'toggle-conflict-cell') handleToggleConflictCell(btn.dataset.key);
       else if (action === 'toggle-day-add') handleToggleDayAddForm(btn.dataset.key);
       else if (action === 'remove-month-assignment') handleRemoveMonthAssignment(btn.dataset.weekStart, btn.dataset.date, btn.dataset.student);
