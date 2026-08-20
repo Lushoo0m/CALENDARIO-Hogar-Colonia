@@ -320,16 +320,19 @@
     return `<div class="table-wrap"><table><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
   }
 
-  function auditMonthDraft(weeksDraft) {
+  // Audita cada semana del borrador de mes por separado (pero contra el
+  // historial que se va acumulando semana a semana, como siempre) y trae
+  // también la cobertura de becados de cada una. `weeksDraft` ya viene
+  // ordenado S1..S4 (sortWeeksAsc en handleStartMonthEdit).
+  function auditMonthDraftByWeek(weeksDraft) {
     const draftStarts = new Set(weeksDraft.map((w) => w.startDate));
     let history = state.lockedWeeks.filter((w) => !draftStarts.has(w.startDate));
-    const allWarnings = [];
-    weeksDraft.forEach((week) => {
+    return weeksDraft.map((week) => {
       const audit = Core.auditWeek(state.students, history, week);
-      audit.warnings.forEach((w) => allWarnings.push({ ...w, weekIndex: week.weekIndex }));
+      const coverage = Core.studentCoverageForWeek(state.students, week);
       history = [...history, week];
+      return { week, audit, coverage };
     });
-    return allWarnings;
   }
 
   // Severidades usadas por Core.auditWeek, ordenadas de más a menos grave.
@@ -341,6 +344,16 @@
     info: { icon: '⚠', label: 'Avisos menores', className: 'sev-info' },
   };
   const SEVERITY_ORDER = ['error', 'warning', 'info'];
+  const SEVERITY_RANK = { error: 0, warning: 1, info: 2 };
+  // Gravedad más grave presente en una lista de warnings (o null si no hay
+  // ninguno), para colorear una burbuja que resume varias gravedades a la vez.
+  function worstSeverity(warnings) {
+    let worst = null;
+    warnings.forEach((w) => {
+      if (worst === null || SEVERITY_RANK[w.severity] < SEVERITY_RANK[worst]) worst = w.severity;
+    });
+    return worst;
+  }
   // A partir de esta cantidad de conflictos en una misma burbuja, cada uno
   // se muestra resumido (1 línea) y hay que tocarlo para ver el texto
   // completo. Por debajo, no vale la pena resumir: se muestra entero directo.
@@ -418,29 +431,75 @@
     return renderSeverityLog(audit.warnings, groupKeyPrefix, studentsById || {}, prefixFor);
   }
 
-  // Cuenta becados vs. asignados esta semana; si sobra alguien sin
-  // asignación, aparece una burbuja roja más que al tocarla despliega los
-  // nombres.
-  function renderCoverageSignal(students, weekLike, groupKeyPrefix, prefix) {
+  // Insignia compacta "asignados/esperados" para pegar al lado del título
+  // de una semana (ej. "Semana 1 de Octubre... 19/19"). Si falta alguien,
+  // es un botón con ⚠ + un "+"/"−" que despliega/resume el detalle (quién
+  // falta) justo debajo, vía renderWeekCoverageDetail con la misma clave.
+  function renderWeekCoverageBadge(students, weekLike, groupKey) {
     const coverage = Core.studentCoverageForWeek(students, weekLike);
     const countLabel = `${coverage.assignedCount}/${coverage.expectedCount}`;
+    if (!coverage.missing.length) {
+      return `<span class="week-badge ok">${countLabel}</span>`;
+    }
+    const isOpen = expandedSeverityGroups.has(groupKey);
+    return `<button type="button" class="week-badge warn ${isOpen ? 'is-open' : ''}" data-action="toggle-severity-group" data-key="${escapeHtml(groupKey)}" title="${isOpen ? 'Tocá para resumir' : 'Tocá para ver quién falta'}">
+      ${countLabel} <span aria-hidden="true">⚠</span> <span class="week-badge-toggle" aria-hidden="true">${isOpen ? '−' : '+'}</span>
+    </button>`;
+  }
+
+  // Detalle (nombres) de renderWeekCoverageBadge, solo si está desplegado.
+  function renderWeekCoverageDetail(students, weekLike, groupKey) {
+    if (!expandedSeverityGroups.has(groupKey)) return '';
+    const coverage = Core.studentCoverageForWeek(students, weekLike);
+    if (!coverage.missing.length) return '';
     const partialNote = coverage.expectedCount < coverage.totalActive
       ? ` <span class="muted">(de ${coverage.totalActive} con beca en total — semana parcial, no todos tienen día esta semana)</span>`
       : '';
-    if (!coverage.missing.length) {
-      return `<div class="coverage-line ok">✓ ${escapeHtml(prefix || '')}Estudiantes con beca cubiertos esta semana: <strong>${countLabel}</strong>${partialNote}</div>`;
-    }
-    const groupKey = `${groupKeyPrefix}|coverage`;
-    const isOpen = expandedSeverityGroups.has(groupKey);
-    const bubble = `<button type="button" class="severity-bubble sev-error ${isOpen ? 'is-open' : ''}" data-action="toggle-severity-group" data-key="${escapeHtml(groupKey)}">
-      <span class="severity-icon" aria-hidden="true">🚩</span>
-      <span class="severity-label">${escapeHtml(prefix || '')}Becados sin asignar (${countLabel} cubiertos)</span>
-      <span class="severity-count">${coverage.missing.length}</span>
-    </button>`;
-    const panel = isOpen
-      ? `<div class="severity-panel sev-error"><div class="alert error">Sin ninguna asignación esta semana: ${coverage.missing.map((m) => escapeHtml(m.name)).join(', ')}.${partialNote}</div></div>`
-      : '';
-    return `<div class="severity-log"><div class="severity-bubbles">${bubble}</div>${panel}</div>`;
+    return `<div class="alert error">Sin ninguna asignación esta semana: ${coverage.missing.map((m) => escapeHtml(m.name)).join(', ')}.${partialNote}</div>`;
+  }
+
+  // Fila de burbujas S1, S2, S3... (una por semana del mes), cada una con
+  // su cobertura de becados al lado (ej. "S2  18/19 ⚠") y coloreada según
+  // el conflicto más grave que tenga esa semana (o verde si está limpia).
+  // Tocar una burbuja despliega SUS conflictos, ordenados por gravedad —
+  // igual que renderSeverityLog, resumidos a partir de 3 y con el detalle
+  // de becados sin asignar si corresponde.
+  function renderWeekChipsLog(entries, groupKeyPrefix, studentsById) {
+    const chips = entries.map(({ week, audit, coverage }) => {
+      const gk = `${groupKeyPrefix}|w${week.weekIndex}`;
+      const isOpen = expandedSeverityGroups.has(gk);
+      const countLabel = `${coverage.assignedCount}/${coverage.expectedCount}`;
+      const incomplete = coverage.missing.length > 0;
+      const worst = worstSeverity(audit.warnings);
+      const chipClass = worst ? SEVERITY_META[worst].className : (incomplete ? 'sev-warning' : 'sev-ok');
+      const totalIssues = audit.warnings.length + (incomplete ? 1 : 0);
+      return `<button type="button" class="severity-bubble week-chip ${chipClass} ${isOpen ? 'is-open' : ''}" data-action="toggle-severity-group" data-key="${escapeHtml(gk)}">
+        <span class="severity-label">S${week.weekIndex}</span>
+        <span class="week-chip-coverage${incomplete ? ' warn' : ''}">${countLabel}${incomplete ? ' ⚠' : ''}</span>
+        ${totalIssues ? `<span class="severity-count">${totalIssues}</span>` : ''}
+        <span class="week-badge-toggle" aria-hidden="true">${isOpen ? '−' : '+'}</span>
+      </button>`;
+    }).join('');
+
+    const panels = entries.filter(({ week }) => expandedSeverityGroups.has(`${groupKeyPrefix}|w${week.weekIndex}`)).map(({ week, audit, coverage }) => {
+      const gk = `${groupKeyPrefix}|w${week.weekIndex}`;
+      const sorted = [...audit.warnings].sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+      const needsSummary = sorted.length >= SUMMARY_THRESHOLD;
+      const conflictItemsHtml = sorted.map((w, idx) => {
+        if (!needsSummary) return `<div class="alert ${w.severity}">${escapeHtml(w.message)}</div>`;
+        const itemKey = `${gk}|${idx}`;
+        const itemOpen = expandedConflictItems.has(itemKey);
+        const itemLabel = itemOpen ? escapeHtml(w.message) : escapeHtml(conflictSummary(w, studentsById));
+        return `<button type="button" class="conflict-item alert ${w.severity} ${itemOpen ? 'is-open' : ''}" data-action="toggle-conflict-item" data-key="${escapeHtml(itemKey)}" title="${itemOpen ? 'Tocá para resumir' : 'Tocá para ver el conflicto completo'}">${itemLabel}</button>`;
+      }).join('');
+      const coverageHtml = coverage.missing.length
+        ? `<div class="alert error">Sin ninguna asignación esta semana: ${coverage.missing.map((m) => escapeHtml(m.name)).join(', ')}.</div>`
+        : '';
+      const emptyHtml = (!sorted.length && !coverage.missing.length) ? '<div class="alert ok">✓ Sin conflictos ni alertas para esta semana.</div>' : '';
+      return `<div class="severity-panel">${conflictItemsHtml}${coverageHtml}${emptyHtml}</div>`;
+    }).join('');
+
+    return `<div class="severity-log"><div class="severity-bubbles">${chips}</div>${panels}</div>`;
   }
 
   // Misma grilla Día × Área que renderWeekGridTable, pero cada celda ocupada
@@ -499,12 +558,13 @@
     if (editing) {
       const ownHistory = state.lockedWeeks.filter((w) => w.startDate !== week.startDate);
       const ownAudit = Core.auditWeek(state.students, ownHistory, editingWeekDraft);
+      const gk = `audit|draft|${editingWeekDraft.startDate}`;
       return `
         <div class="card">
           <div class="week-card-head"><h3>${escapeHtml(heading)} <span class="muted">— ${escapeHtml(editingSubtitle)}</span></h3>${toggle}</div>
-          <p class="muted">${escapeHtml(label)}</p>
+          <p class="muted">${escapeHtml(label)} ${renderWeekCoverageBadge(state.students, editingWeekDraft, `${gk}|coverage`)}</p>
           <div class="alert warning">Estás editando esta semana mientras revisás el resto. Los cambios se guardan al volver a bloquear (switch), y ahí se recalcula lo que dependa del historial nuevo.</div>
-          <div class="audit-list">${renderAudit(ownAudit, `audit|draft|${editingWeekDraft.startDate}`, studentsById)}${renderCoverageSignal(state.students, editingWeekDraft, `audit|draft|${editingWeekDraft.startDate}`)}</div>
+          <div class="audit-list">${renderAudit(ownAudit, gk, studentsById)}${renderWeekCoverageDetail(state.students, editingWeekDraft, `${gk}|coverage`)}</div>
           ${renderEditableWeekGridTable(editingWeekDraft, studentsById, 'draft')}
           <div class="btn-row">
             <button class="btn" data-action="confirm-previous-week">Confirmar y bloquear de nuevo</button>
@@ -560,9 +620,9 @@
 
       el.innerHTML = `
         <div class="card">
-          <h2>Propuesta: ${escapeHtml(label)}</h2>
+          <h2>Propuesta: ${escapeHtml(label)} ${renderWeekCoverageBadge(state.students, proposal, `audit|proposal|${proposal.startDate}|coverage`)}</h2>
           <p class="muted">Editá el área de cada estudiante directo en la grilla. La IA nunca aplica esto por su cuenta: queda a la espera de que lo apruebes.</p>
-          <div class="audit-list">${renderAudit(audit, `audit|proposal|${proposal.startDate}`, studentsById)}${renderCoverageSignal(state.students, proposal, `audit|proposal|${proposal.startDate}`)}</div>
+          <div class="audit-list">${renderAudit(audit, `audit|proposal|${proposal.startDate}`, studentsById)}${renderWeekCoverageDetail(state.students, proposal, `audit|proposal|${proposal.startDate}|coverage`)}</div>
         </div>
         <div class="card">
           <h3>Vista previa (editable)</h3>
@@ -604,15 +664,7 @@
           : renderMonthGridTable(weeksOfThatMonth);
 
         const auditHtml = editing
-          ? (() => {
-              const warnings = auditMonthDraft(editingMonthDraft);
-              const gk = `audit|month|${closedKey}`;
-              const conflictsHtml = renderSeverityLog(warnings, gk, studentsById, (w) => `Semana ${w.weekIndex}: `);
-              const coverageHtml = editingMonthDraft
-                .map((week) => renderCoverageSignal(state.students, week, `${gk}|w${week.weekIndex}`, `Semana ${week.weekIndex}: `))
-                .join('');
-              return conflictsHtml + coverageHtml;
-            })()
+          ? renderWeekChipsLog(auditMonthDraftByWeek(editingMonthDraft), `audit|month|${closedKey}`, studentsById)
           : '';
 
         const actionsHtml = editing ? `
@@ -1188,10 +1240,7 @@
       const editingThisMonth = editingMonthKey === key;
 
       const buildEditBodyHtml = () => {
-        const warnings = auditMonthDraft(editingMonthDraft);
-        const gk = `audit|month|${key}`;
-        const auditHtml = renderSeverityLog(warnings, gk, studentsById, (w) => `Semana ${w.weekIndex}: `)
-          + editingMonthDraft.map((week) => renderCoverageSignal(state.students, week, `${gk}|w${week.weekIndex}`, `Semana ${week.weekIndex}: `)).join('');
+        const auditHtml = renderWeekChipsLog(auditMonthDraftByWeek(editingMonthDraft), `audit|month|${key}`, studentsById);
         return `
         <div class="month-card-body">
           ${auditHtml}

@@ -233,6 +233,10 @@ tr.dow-7 { background: color-mix(in srgb, var(--dow-7) 55%, transparent); }
 .severity-bubble.sev-info .severity-label { color: #ded391; }
 .severity-bubble.sev-info .severity-count { background: var(--minor); color: #201d0c; min-width: 1.4em; height: 1.4em; font-size: 0.78em; }
 
+/* Semana limpia (chips S1, S2... sin ningún conflicto). */
+.severity-bubble.sev-ok { background: var(--ok-bg); border: 1px solid #2c4534; }
+.severity-bubble.sev-ok .severity-label { color: #b3d9bc; }
+
 /* Panel desplegado debajo de la fila de burbujas al tocar una de ellas. */
 .severity-panel { display: flex; flex-direction: column; gap: 6px; }
 .conflict-item {
@@ -242,8 +246,29 @@ tr.dow-7 { background: color-mix(in srgb, var(--dow-7) 55%, transparent); }
 .conflict-item:hover { filter: brightness(1.1); }
 .conflict-item.is-open { font-weight: 500; }
 
-/* Cobertura de becados vs. asignados esta semana. */
-.coverage-line.ok { font-size: 0.86rem; padding: 8px 14px; color: #b3d9bc; }
+/* Chips S1, S2, S3... de una semana cada uno (mes completo): todos del
+   mismo tamaño (no escalan por gravedad como las burbujas sueltas de
+   arriba), coloreados según su conflicto más grave. La cobertura de
+   becados va pegada al número de semana, con ⚠ si falta alguien. */
+.week-chip { padding: 8px 12px !important; font-size: 0.9rem !important; }
+.week-chip-coverage { opacity: 0.85; font-weight: 500; }
+.week-chip-coverage.warn { opacity: 1; font-weight: 700; }
+.week-badge-toggle { opacity: 0.6; font-weight: 700; }
+
+/* Insignia "asignados/esperados" al lado del título de una semana suelta
+   (propuesta, semana anterior en edición). Verde y quieta si está
+   completa; si falta alguien, botón con ⚠ que despliega el detalle. */
+.week-badge {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 0.78rem;
+  font-weight: 600; padding: 2px 9px; border-radius: 999px; vertical-align: middle;
+}
+.week-badge.ok { background: var(--ok-bg); border: 1px solid #2c4534; color: #b3d9bc; }
+.week-badge.warn {
+  background: var(--danger-bg); border: 1px solid #4a2830; color: #edb7bf;
+  cursor: pointer; appearance: none; -webkit-appearance: none; font: inherit;
+}
+.week-badge.warn:hover { filter: brightness(1.12); }
+.week-badge.warn.is-open { box-shadow: inset 0 0 0 2px currentColor; }
 
 .cell-edit { min-width: 118px; }
 .cell-student { font-size: 0.82rem; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
