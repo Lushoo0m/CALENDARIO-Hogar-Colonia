@@ -327,11 +327,65 @@
     return allWarnings;
   }
 
-  function renderAudit(audit) {
-    if (!audit.warnings.length) {
-      return '<div class="alert ok">✓ Sin conflictos ni alertas detectadas para esta semana.</div>';
+  // Severidades usadas por Core.auditWeek, ordenadas de más a menos grave.
+  // Cada una es una "señal" clickeable (icono + contador) que despliega su
+  // propia lista de mensajes — más grave, más grande y más llamativa.
+  const SEVERITY_META = {
+    error: { icon: '🚨', label: 'Conflictos graves', className: 'sev-error' },
+    warning: { icon: '⚠️', label: 'Conflictos moderados', className: 'sev-warning' },
+    info: { icon: '⚠', label: 'Avisos menores', className: 'sev-info' },
+  };
+  const SEVERITY_ORDER = ['error', 'warning', 'info'];
+
+  function renderSeverityLog(warnings, prefixFor) {
+    if (!warnings.length) {
+      return '<div class="alert ok">✓ Sin conflictos ni alertas detectadas.</div>';
     }
-    return audit.warnings.map((w) => `<div class="alert ${w.severity}">${escapeHtml(w.message)}</div>`).join('');
+    const groups = {};
+    warnings.forEach((w) => { (groups[w.severity] = groups[w.severity] || []).push(w); });
+    return `<div class="severity-log">${SEVERITY_ORDER.filter((sev) => groups[sev] && groups[sev].length).map((sev) => {
+      const meta = SEVERITY_META[sev];
+      const items = groups[sev];
+      return `
+        <details class="severity-group ${meta.className}">
+          <summary>
+            <span class="severity-icon" aria-hidden="true">${meta.icon}</span>
+            <span class="severity-label">${escapeHtml(meta.label)}</span>
+            <span class="severity-count">${items.length}</span>
+          </summary>
+          <div class="severity-items">
+            ${items.map((w) => `<div class="alert ${w.severity}">${prefixFor ? escapeHtml(prefixFor(w)) : ''}${escapeHtml(w.message)}</div>`).join('')}
+          </div>
+        </details>`;
+    }).join('')}</div>`;
+  }
+
+  function renderAudit(audit) {
+    return renderSeverityLog(audit.warnings);
+  }
+
+  // Cuenta becados vs. asignados esta semana; si sobra alguien sin
+  // asignación, la señal roja se despliega con los nombres.
+  function renderCoverageSignal(students, weekLike, prefix) {
+    const coverage = Core.studentCoverageForWeek(students, weekLike);
+    const countLabel = `${coverage.assignedCount}/${coverage.expectedCount}`;
+    const partialNote = coverage.expectedCount < coverage.totalActive
+      ? ` <span class="muted">(de ${coverage.totalActive} con beca en total — semana parcial, no todos tienen día esta semana)</span>`
+      : '';
+    if (!coverage.missing.length) {
+      return `<div class="coverage-line ok">✓ ${escapeHtml(prefix || '')}Estudiantes con beca cubiertos esta semana: <strong>${countLabel}</strong>${partialNote}</div>`;
+    }
+    return `
+      <details class="severity-group sev-error coverage-line">
+        <summary>
+          <span class="severity-icon" aria-hidden="true">🚩</span>
+          <span class="severity-label">${escapeHtml(prefix || '')}Estudiantes con beca SIN asignar esta semana (${countLabel} cubiertos)</span>
+          <span class="severity-count">${coverage.missing.length}</span>
+        </summary>
+        <div class="severity-items">
+          <div class="alert error">Sin ninguna asignación esta semana: ${coverage.missing.map((m) => escapeHtml(m.name)).join(', ')}.${partialNote}</div>
+        </div>
+      </details>`;
   }
 
   // Misma grilla Día × Área que renderWeekGridTable, pero cada celda ocupada
@@ -395,7 +449,7 @@
           <div class="week-card-head"><h3>${escapeHtml(heading)} <span class="muted">— ${escapeHtml(editingSubtitle)}</span></h3>${toggle}</div>
           <p class="muted">${escapeHtml(label)}</p>
           <div class="alert warning">Estás editando esta semana mientras revisás el resto. Los cambios se guardan al volver a bloquear (switch), y ahí se recalcula lo que dependa del historial nuevo.</div>
-          <div class="audit-list">${renderAudit(ownAudit)}</div>
+          <div class="audit-list">${renderAudit(ownAudit)}${renderCoverageSignal(state.students, editingWeekDraft)}</div>
           ${renderEditableWeekGridTable(editingWeekDraft, studentsById, 'draft')}
           <div class="btn-row">
             <button class="btn" data-action="confirm-previous-week">Confirmar y bloquear de nuevo</button>
@@ -453,7 +507,7 @@
         <div class="card">
           <h2>Propuesta: ${escapeHtml(label)}</h2>
           <p class="muted">Editá el área de cada estudiante directo en la grilla. La IA nunca aplica esto por su cuenta: queda a la espera de que lo apruebes.</p>
-          <div class="audit-list">${renderAudit(audit)}</div>
+          <div class="audit-list">${renderAudit(audit)}${renderCoverageSignal(state.students, proposal)}</div>
         </div>
         <div class="card">
           <h3>Vista previa (editable)</h3>
@@ -497,9 +551,11 @@
         const auditHtml = editing
           ? (() => {
               const warnings = auditMonthDraft(editingMonthDraft);
-              return warnings.length
-                ? warnings.map((w) => `<div class="alert ${w.severity}">Semana ${w.weekIndex}: ${escapeHtml(w.message)}</div>`).join('')
-                : '<div class="alert ok">✓ Sin conflictos ni alertas detectadas en todo el mes.</div>';
+              const conflictsHtml = renderSeverityLog(warnings, (w) => `Semana ${w.weekIndex}: `);
+              const coverageHtml = editingMonthDraft
+                .map((week) => renderCoverageSignal(state.students, week, `Semana ${week.weekIndex}: `))
+                .join('');
+              return conflictsHtml + coverageHtml;
             })()
           : '';
 
@@ -1061,9 +1117,8 @@
 
       const buildEditBodyHtml = () => {
         const warnings = auditMonthDraft(editingMonthDraft);
-        const auditHtml = warnings.length
-          ? warnings.map((w) => `<div class="alert ${w.severity}">Semana ${w.weekIndex}: ${escapeHtml(w.message)}</div>`).join('')
-          : '<div class="alert ok">✓ Sin conflictos ni alertas detectadas en todo el mes.</div>';
+        const auditHtml = renderSeverityLog(warnings, (w) => `Semana ${w.weekIndex}: `)
+          + editingMonthDraft.map((week) => renderCoverageSignal(state.students, week, `Semana ${week.weekIndex}: `)).join('');
         return `
         <div class="month-card-body">
           ${auditHtml}

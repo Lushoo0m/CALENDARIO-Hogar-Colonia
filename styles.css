@@ -12,6 +12,8 @@
   --danger-bg: #2c1e22;
   --warning-bg: #2a2419;
   --ok-bg: #1c2620;
+  --minor: #d8c24a;
+  --minor-bg: #2a2818;
   --radius: 10px;
 
   /* Tintes desaturados por día (fondo oscuro, sin pasteles) */
@@ -188,6 +190,56 @@ tr.dow-7 { background: color-mix(in srgb, var(--dow-7) 55%, transparent); }
 .alert.warning { background: var(--warning-bg); border-color: #4a3d20; color: #e8caa0; }
 .alert.info { background: var(--panel-2); border-color: var(--border); color: var(--muted); }
 .alert.ok { background: var(--ok-bg); border-color: #2c4534; color: #b3d9bc; }
+
+/* LOG de conflictos: una "señal" por gravedad (icono + contador), clickeable
+   para desplegar la lista de mensajes de esa gravedad. Cuanto más grave, más
+   grande y más llamativa la señal — la de aviso menor es chica y amarilla. */
+.severity-log { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.severity-group { border-radius: 10px; border: 1px solid transparent; }
+.severity-group summary {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  list-style: none; user-select: none; border-radius: 10px;
+  padding: 10px 14px;
+}
+.severity-group summary::-webkit-details-marker { display: none; }
+.severity-group summary::after {
+  content: '▸'; margin-left: auto; opacity: 0.6; font-size: 0.8em;
+  transition: transform 0.15s;
+}
+.severity-group[open] summary::after { transform: rotate(90deg); }
+.severity-label { font-weight: 600; }
+.severity-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.6em; height: 1.6em; padding: 0 5px; border-radius: 999px;
+  font-weight: 700; font-size: 0.85em; line-height: 1;
+}
+.severity-items { padding: 4px 4px 0; }
+
+/* Grave: la señal más grande y llamativa. */
+.severity-group.sev-error { background: var(--danger-bg); border-color: #4a2830; }
+.severity-group.sev-error summary { font-size: 1.05rem; }
+.severity-group.sev-error .severity-icon { font-size: 1.5em; line-height: 1; }
+.severity-group.sev-error .severity-label { color: #edb7bf; }
+.severity-group.sev-error .severity-count { background: var(--danger); color: #200f12; }
+
+/* Moderado: tamaño intermedio, tono ámbar. */
+.severity-group.sev-warning { background: var(--warning-bg); border-color: #4a3d20; }
+.severity-group.sev-warning summary { font-size: 0.95rem; }
+.severity-group.sev-warning .severity-icon { font-size: 1.15em; line-height: 1; }
+.severity-group.sev-warning .severity-label { color: #e8caa0; }
+.severity-group.sev-warning .severity-count { background: var(--warning); color: #201a0c; }
+
+/* Menor: señal chica y amarilla. */
+.severity-group.sev-info { background: var(--minor-bg); border-color: #4a4420; }
+.severity-group.sev-info summary { font-size: 0.82rem; padding: 6px 12px; }
+.severity-group.sev-info .severity-icon { font-size: 0.9em; line-height: 1; }
+.severity-group.sev-info .severity-label { color: #ded391; }
+.severity-group.sev-info .severity-count { background: var(--minor); color: #201d0c; min-width: 1.4em; height: 1.4em; font-size: 0.78em; }
+
+/* Cobertura de becados vs. asignados esta semana. */
+.coverage-line { font-size: 0.86rem; }
+.coverage-line.ok { padding: 8px 14px; color: #b3d9bc; }
+.coverage-line.severity-group .severity-label { color: #edb7bf; font-weight: 500; }
 
 .cell-edit { min-width: 118px; }
 .cell-student { font-size: 0.82rem; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }

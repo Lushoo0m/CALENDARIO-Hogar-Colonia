@@ -717,6 +717,26 @@
     return { warnings, counts, isPartial };
   }
 
+  // Compara cuántos estudiantes con beca (active) corresponden a esta semana
+  // (según su día fijo) contra cuántos quedaron realmente asignados a algún
+  // área. En una semana completa, expectedCount == totalActive (los 20); en
+  // una semana parcial de inicio/fin de mes, expectedCount puede ser menor
+  // porque algunos días fijos ni siquiera caen dentro de esta semana.
+  function studentCoverageForWeek(students, weekProposal) {
+    const activeStudents = students.filter((s) => s.active);
+    const daysDow = new Set(weekProposal.days.map((d) => d.dow));
+    const expected = activeStudents.filter((s) => daysDow.has(s.fixedDay));
+    const assignedIds = new Set();
+    weekProposal.days.forEach((day) => day.assignments.forEach((a) => assignedIds.add(a.studentId)));
+    const missing = expected.filter((s) => !assignedIds.has(s.id));
+    return {
+      totalActive: activeStudents.length,
+      expectedCount: expected.length,
+      assignedCount: expected.length - missing.length,
+      missing: missing.map((s) => ({ id: s.id, name: s.name })),
+    };
+  }
+
   // ---------------------------------------------------------------------
   // Próxima semana pendiente (cruza meses automáticamente)
   // ---------------------------------------------------------------------
@@ -768,6 +788,7 @@
     solveWeek,
     generateWeekProposal,
     auditWeek,
+    studentCoverageForWeek,
     getNextPendingWeekInfo,
   };
 });
