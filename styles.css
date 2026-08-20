@@ -151,6 +151,24 @@ tr.week-divider-row td {
   border-bottom: 2px solid #fff;
 }
 
+/* Alerta de asignación pegada al rótulo "Semana N" (encabezado o divisor):
+   un becado sin ninguna asignación esa semana en particular. Tocarla
+   despliega la fila de abajo con solamente los nombres. */
+.week-row-alert {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; margin-left: 6px; padding: 0;
+  border-radius: 999px; border: none; cursor: pointer;
+  background: var(--danger); color: #200f12; font-size: 0.72rem;
+  text-transform: none; letter-spacing: normal; vertical-align: middle;
+}
+.week-row-alert:hover { filter: brightness(1.12); }
+.week-row-alert.is-open { box-shadow: 0 0 0 2px #fff; }
+tr.week-alert-detail-row td {
+  background: var(--danger-bg); color: #edb7bf;
+  font-size: 0.8rem; font-weight: 500;
+  padding: 6px 10px; text-transform: none; letter-spacing: normal;
+}
+
 tr.dow-1 td:first-child, tr.dow-1 { background: color-mix(in srgb, var(--dow-1) 55%, transparent); }
 tr.dow-2 { background: color-mix(in srgb, var(--dow-2) 55%, transparent); }
 tr.dow-3 { background: color-mix(in srgb, var(--dow-3) 55%, transparent); }
@@ -248,11 +266,8 @@ tr.dow-7 { background: color-mix(in srgb, var(--dow-7) 55%, transparent); }
 
 /* Chips S1, S2, S3... de una semana cada uno (mes completo): todos del
    mismo tamaño (no escalan por gravedad como las burbujas sueltas de
-   arriba), coloreados según su conflicto más grave. La cobertura de
-   becados va pegada al número de semana, con ⚠ si falta alguien. */
+   arriba), coloreados según su conflicto más grave. */
 .week-chip { padding: 8px 12px !important; font-size: 0.9rem !important; }
-.week-chip-coverage { opacity: 0.85; font-weight: 500; }
-.week-chip-coverage.warn { opacity: 1; font-weight: 700; }
 .week-badge-toggle { opacity: 0.6; font-weight: 700; }
 
 /* Insignia "asignados/esperados" al lado del título de una semana suelta

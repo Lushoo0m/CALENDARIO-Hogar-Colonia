@@ -181,24 +181,56 @@
     return `<div class="table-wrap"><table><thead>${header}</thead><tbody>${rows}</tbody></table></div>`;
   }
 
+  // Alerta de asignación pegada al rótulo "Semana N" (encabezado o fila
+  // divisora, en las grillas de mes) — un estudiante con beca sin ninguna
+  // asignación ESA semana en particular. Solo cuenta a quien realmente
+  // tenga su día fijo dentro de esa semana (Core.studentCoverageForWeek ya
+  // lo hace así): si el mes corta la semana a mitad de camino, el resto de
+  // esa semana natural cae en la semana 1 del mes siguiente y se evalúa
+  // ahí — nunca se marca acá a alguien que no le tocaba esta semana.
+  // `students` en null/undefined desactiva la alerta (usado en el PDF,
+  // donde no hay forma de tocarla para desplegar el detalle).
+  function weekCoverageMarkerHtml(students, week, groupKey) {
+    if (!students) return '';
+    const coverage = Core.studentCoverageForWeek(students, week);
+    if (!coverage.missing.length) return '';
+    const isOpen = expandedSeverityGroups.has(groupKey);
+    return ` <button type="button" class="week-row-alert ${isOpen ? 'is-open' : ''}" data-action="toggle-severity-group" data-key="${escapeHtml(groupKey)}" title="${isOpen ? 'Tocá para cerrar' : 'Tocá para ver quién falta'}" aria-label="Falta asignar a alguien esta semana">⚠</button>`;
+  }
+
+  // Fila con solamente los nombres de quienes falten, debajo del divisor de
+  // esa semana — únicamente si la alerta de arriba está desplegada.
+  function weekCoverageDetailRowHtml(students, week, groupKey) {
+    if (!students || !expandedSeverityGroups.has(groupKey)) return '';
+    const coverage = Core.studentCoverageForWeek(students, week);
+    if (!coverage.missing.length) return '';
+    const colSpan = 1 + Core.AREAS.length;
+    return `<tr class="week-alert-detail-row"><td colspan="${colSpan}">${coverage.missing.map((m) => escapeHtml(m.name)).join(', ')}</td></tr>`;
+  }
+
   // Vista de un mes completo: varias semanas (Core.monthWeeks) una debajo de
   // otra, separadas por una fila fina "Semana N" — cada semana va del
   // primer día del mes (o lunes) hasta el domingo (o el último día del
   // mes), tal cual corta el propio calendario. Usada en Calendarios
   // anteriores y en el PDF; la imagen descargable dibuja lo mismo a mano.
-  function renderMonthGridTable(weeksOfMonth) {
+  // `studentsById` y `groupKeyPrefix` son opcionales: sin ellos (como en el
+  // PDF) no se muestra la alerta de asignación por semana.
+  function renderMonthGridTable(weeksOfMonth, studentsById, groupKeyPrefix) {
     const [firstWeek, ...restWeeks] = weeksOfMonth;
     if (!firstWeek) return '<div class="table-wrap"><table></table></div>';
+    const students = studentsById ? Object.values(studentsById) : null;
     // La primera semana no lleva su propio divisor "Semana N" — quedaría
     // pegado justo debajo del encabezado, duplicando la fila de áreas. En
     // su lugar, la celda "Día" del encabezado se reemplaza directamente
     // por "Semana N" (el índice de la primera semana presente del mes,
     // que no siempre es 1 — ej. un mes con historial incompleto al inicio).
-    const header = weekGridHeaderHtml(`Semana ${firstWeek.weekIndex}`);
-    const body = weekDayRowsHtml(firstWeek.days) + restWeeks.map((week) => {
+    const firstGk = `${groupKeyPrefix}|w${firstWeek.weekIndex}|coverage`;
+    const header = `<tr><th>Semana ${firstWeek.weekIndex}${weekCoverageMarkerHtml(students, firstWeek, firstGk)}</th>${Core.AREAS.map((a) => `<th>${escapeHtml(a.label)}</th>`).join('')}</tr>`;
+    const body = weekCoverageDetailRowHtml(students, firstWeek, firstGk) + weekDayRowsHtml(firstWeek.days) + restWeeks.map((week) => {
+      const gk = `${groupKeyPrefix}|w${week.weekIndex}|coverage`;
       const areaCells = Core.AREAS.map((a) => `<td>${escapeHtml(a.label)}</td>`).join('');
-      const divider = `<tr class="week-divider-row"><td>Semana ${week.weekIndex}</td>${areaCells}</tr>`;
-      return divider + weekDayRowsHtml(week.days);
+      const divider = `<tr class="week-divider-row"><td>Semana ${week.weekIndex}${weekCoverageMarkerHtml(students, week, gk)}</td>${areaCells}</tr>`;
+      return divider + weekCoverageDetailRowHtml(students, week, gk) + weekDayRowsHtml(week.days);
     }).join('');
     return `<div class="table-wrap"><table><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
   }
@@ -308,30 +340,33 @@
     }).join('');
   }
 
-  function renderEditableMonthGridTable(weeksDraft, studentsById) {
+  function renderEditableMonthGridTable(weeksDraft, studentsById, groupKeyPrefix) {
     const [firstWeek, ...restWeeks] = weeksDraft;
     if (!firstWeek) return '<div class="table-wrap"><table></table></div>';
-    const header = weekGridHeaderHtml(`Semana ${firstWeek.weekIndex}`);
-    const body = editableMonthDayRowsHtml(firstWeek.days, firstWeek.startDate, studentsById) + restWeeks.map((week) => {
+    const students = Object.values(studentsById);
+    const firstGk = `${groupKeyPrefix}|w${firstWeek.weekIndex}|coverage`;
+    const header = `<tr><th>Semana ${firstWeek.weekIndex}${weekCoverageMarkerHtml(students, firstWeek, firstGk)}</th>${Core.AREAS.map((a) => `<th>${escapeHtml(a.label)}</th>`).join('')}</tr>`;
+    const body = weekCoverageDetailRowHtml(students, firstWeek, firstGk) + editableMonthDayRowsHtml(firstWeek.days, firstWeek.startDate, studentsById) + restWeeks.map((week) => {
+      const gk = `${groupKeyPrefix}|w${week.weekIndex}|coverage`;
       const areaCells = Core.AREAS.map((a) => `<td>${escapeHtml(a.label)}</td>`).join('');
-      const divider = `<tr class="week-divider-row"><td>Semana ${week.weekIndex}</td>${areaCells}</tr>`;
-      return divider + editableMonthDayRowsHtml(week.days, week.startDate, studentsById);
+      const divider = `<tr class="week-divider-row"><td>Semana ${week.weekIndex}${weekCoverageMarkerHtml(students, week, gk)}</td>${areaCells}</tr>`;
+      return divider + weekCoverageDetailRowHtml(students, week, gk) + editableMonthDayRowsHtml(week.days, week.startDate, studentsById);
     }).join('');
     return `<div class="table-wrap"><table><thead>${header}</thead><tbody>${body}</tbody></table></div>`;
   }
 
-  // Audita cada semana del borrador de mes por separado (pero contra el
-  // historial que se va acumulando semana a semana, como siempre) y trae
-  // también la cobertura de becados de cada una. `weeksDraft` ya viene
-  // ordenado S1..S4 (sortWeeksAsc en handleStartMonthEdit).
+  // Audita cada semana del borrador de mes por separado, pero contra el
+  // historial que se va acumulando semana a semana, como siempre.
+  // `weeksDraft` ya viene ordenado S1..S4 (sortWeeksAsc en
+  // handleStartMonthEdit). La cobertura de becados se maneja aparte, en la
+  // propia grilla (weekCoverageMarkerHtml), no acá.
   function auditMonthDraftByWeek(weeksDraft) {
     const draftStarts = new Set(weeksDraft.map((w) => w.startDate));
     let history = state.lockedWeeks.filter((w) => !draftStarts.has(w.startDate));
     return weeksDraft.map((week) => {
       const audit = Core.auditWeek(state.students, history, week);
-      const coverage = Core.studentCoverageForWeek(state.students, week);
       history = [...history, week];
-      return { week, audit, coverage };
+      return { week, audit };
     });
   }
 
@@ -447,41 +482,35 @@
     </button>`;
   }
 
-  // Detalle (nombres) de renderWeekCoverageBadge, solo si está desplegado.
+  // Detalle de renderWeekCoverageBadge, solo si está desplegado — nada más
+  // que los nombres de quienes falten.
   function renderWeekCoverageDetail(students, weekLike, groupKey) {
     if (!expandedSeverityGroups.has(groupKey)) return '';
     const coverage = Core.studentCoverageForWeek(students, weekLike);
     if (!coverage.missing.length) return '';
-    const partialNote = coverage.expectedCount < coverage.totalActive
-      ? ` <span class="muted">(de ${coverage.totalActive} con beca en total — semana parcial, no todos tienen día esta semana)</span>`
-      : '';
-    return `<div class="alert error">Sin ninguna asignación esta semana: ${coverage.missing.map((m) => escapeHtml(m.name)).join(', ')}.${partialNote}</div>`;
+    return `<div class="alert error">${coverage.missing.map((m) => escapeHtml(m.name)).join(', ')}</div>`;
   }
 
-  // Fila de burbujas S1, S2, S3... (una por semana del mes), cada una con
-  // su cobertura de becados al lado (ej. "S2  18/19 ⚠") y coloreada según
-  // el conflicto más grave que tenga esa semana (o verde si está limpia).
-  // Tocar una burbuja despliega SUS conflictos, ordenados por gravedad —
-  // igual que renderSeverityLog, resumidos a partir de 3 y con el detalle
-  // de becados sin asignar si corresponde.
+  // Fila de burbujas S1, S2, S3... (una por semana del mes), coloreada
+  // según el conflicto más grave que tenga esa semana (o verde si está
+  // limpia). Tocar una burbuja despliega SUS conflictos, ordenados por
+  // gravedad — igual que renderSeverityLog, resumidos a partir de 3. La
+  // cobertura de becados NO va acá: se ve directo en la propia grilla,
+  // pegada al rótulo "Semana N" (weekCoverageMarkerHtml).
   function renderWeekChipsLog(entries, groupKeyPrefix, studentsById) {
-    const chips = entries.map(({ week, audit, coverage }) => {
+    const chips = entries.map(({ week, audit }) => {
       const gk = `${groupKeyPrefix}|w${week.weekIndex}`;
       const isOpen = expandedSeverityGroups.has(gk);
-      const countLabel = `${coverage.assignedCount}/${coverage.expectedCount}`;
-      const incomplete = coverage.missing.length > 0;
       const worst = worstSeverity(audit.warnings);
-      const chipClass = worst ? SEVERITY_META[worst].className : (incomplete ? 'sev-warning' : 'sev-ok');
-      const totalIssues = audit.warnings.length + (incomplete ? 1 : 0);
+      const chipClass = worst ? SEVERITY_META[worst].className : 'sev-ok';
       return `<button type="button" class="severity-bubble week-chip ${chipClass} ${isOpen ? 'is-open' : ''}" data-action="toggle-severity-group" data-key="${escapeHtml(gk)}">
         <span class="severity-label">S${week.weekIndex}</span>
-        <span class="week-chip-coverage${incomplete ? ' warn' : ''}">${countLabel}${incomplete ? ' ⚠' : ''}</span>
-        ${totalIssues ? `<span class="severity-count">${totalIssues}</span>` : ''}
+        ${audit.warnings.length ? `<span class="severity-count">${audit.warnings.length}</span>` : ''}
         <span class="week-badge-toggle" aria-hidden="true">${isOpen ? '−' : '+'}</span>
       </button>`;
     }).join('');
 
-    const panels = entries.filter(({ week }) => expandedSeverityGroups.has(`${groupKeyPrefix}|w${week.weekIndex}`)).map(({ week, audit, coverage }) => {
+    const panels = entries.filter(({ week }) => expandedSeverityGroups.has(`${groupKeyPrefix}|w${week.weekIndex}`)).map(({ week, audit }) => {
       const gk = `${groupKeyPrefix}|w${week.weekIndex}`;
       const sorted = [...audit.warnings].sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
       const needsSummary = sorted.length >= SUMMARY_THRESHOLD;
@@ -492,11 +521,8 @@
         const itemLabel = itemOpen ? escapeHtml(w.message) : escapeHtml(conflictSummary(w, studentsById));
         return `<button type="button" class="conflict-item alert ${w.severity} ${itemOpen ? 'is-open' : ''}" data-action="toggle-conflict-item" data-key="${escapeHtml(itemKey)}" title="${itemOpen ? 'Tocá para resumir' : 'Tocá para ver el conflicto completo'}">${itemLabel}</button>`;
       }).join('');
-      const coverageHtml = coverage.missing.length
-        ? `<div class="alert error">Sin ninguna asignación esta semana: ${coverage.missing.map((m) => escapeHtml(m.name)).join(', ')}.</div>`
-        : '';
-      const emptyHtml = (!sorted.length && !coverage.missing.length) ? '<div class="alert ok">✓ Sin conflictos ni alertas para esta semana.</div>' : '';
-      return `<div class="severity-panel">${conflictItemsHtml}${coverageHtml}${emptyHtml}</div>`;
+      const emptyHtml = !sorted.length ? '<div class="alert ok">✓ Sin conflictos para esta semana.</div>' : '';
+      return `<div class="severity-panel">${conflictItemsHtml}${emptyHtml}</div>`;
     }).join('');
 
     return `<div class="severity-log"><div class="severity-bubbles">${chips}</div>${panels}</div>`;
@@ -660,8 +686,8 @@
         const editing = editingMonthKey === closedKey;
 
         const gridHtml = editing
-          ? renderEditableMonthGridTable(editingMonthDraft, studentsById)
-          : renderMonthGridTable(weeksOfThatMonth);
+          ? renderEditableMonthGridTable(editingMonthDraft, studentsById, `grid|${closedKey}`)
+          : renderMonthGridTable(weeksOfThatMonth, studentsById, `grid|${closedKey}`);
 
         const auditHtml = editing
           ? renderWeekChipsLog(auditMonthDraftByWeek(editingMonthDraft), `audit|month|${closedKey}`, studentsById)
@@ -1275,7 +1301,7 @@
         return `
         <div class="month-card-body">
           ${auditHtml}
-          ${renderEditableMonthGridTable(editingMonthDraft, studentsById)}
+          ${renderEditableMonthGridTable(editingMonthDraft, studentsById, `grid|${key}`)}
           <div class="btn-row">
             <button class="btn" data-action="save-month-edit">Guardar corrección</button>
             <button class="btn secondary" data-action="regenerate-month">Regenerar mes automáticamente</button>
@@ -1286,7 +1312,7 @@
 
       const viewBodyHtml = `
         <div class="month-card-body">
-          ${renderMonthGridTable(weeksOfMonth)}
+          ${renderMonthGridTable(weeksOfMonth, studentsById, `grid|${key}`)}
           <div class="btn-row">
             <button class="btn small secondary" data-action="print-month" data-month-key="${key}">
               <svg class="icon-download" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 1a1 1 0 0 1 1 1v6.086l1.793-1.793a1 1 0 1 1 1.414 1.414l-3.5 3.5a1 1 0 0 1-1.414 0l-3.5-3.5a1 1 0 1 1 1.414-1.414L7 8.086V2a1 1 0 0 1 1-1zM2 12a1 1 0 0 1 1 1v1h10v-1a1 1 0 1 1 2 0v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2v-1a1 1 0 0 1 1-1z"/></svg>

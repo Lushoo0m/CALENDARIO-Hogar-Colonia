@@ -30,6 +30,24 @@ function lockWeek(students, lockedWeeks, weekInfo) {
   return { proposal, audit };
 }
 
+// Convierte un weekInfo de Core.monthWeeks() (days = Date[]) a la forma de
+// semana ya "armada" (days = [{date, dow, assignments}]) que esperan
+// Core.auditWeek / Core.studentCoverageForWeek. `assignmentsByDow` deja
+// poner asignaciones a mano en un día puntual de la semana, por dow (1-7).
+function toWeekShape(weekInfo, assignmentsByDow) {
+  return {
+    year: weekInfo.year,
+    month: weekInfo.month,
+    weekIndex: weekInfo.index,
+    startDate: Core.toISO(weekInfo.start),
+    endDate: Core.toISO(weekInfo.end),
+    days: weekInfo.days.map((date) => {
+      const dow = Core.isoWeekdayMon1(date);
+      return { date: Core.toISO(date), dow, assignments: (assignmentsByDow && assignmentsByDow[dow]) || [] };
+    }),
+  };
+}
+
 // ---------------------------------------------------------------------
 // 1. monthWeeks(): verificar el ejemplo exacto del enunciado (julio 2026)
 // ---------------------------------------------------------------------
@@ -377,6 +395,42 @@ check('detector de huecos dispara en el día exacto para cada área: Cocina (1 d
   const stairsAudit = Core.auditWeek(students, [], buildFakeWeek('2026-01-05', 7, 'stairs', 'darhian'));
   const stairsGapWarnings = stairsAudit.warnings.filter((w) => (w.type === 'gap' || w.type === 'gapSoft') && w.area === 'stairs');
   assert.strictEqual(stairsGapWarnings.length, 0, 'Escaleras no debería tener límite de días sin limpiar');
+});
+
+// ---------------------------------------------------------------------
+// 9. Cobertura de becados: la semana corta de fin de mes no debe marcar
+//    como "falta" a nadie cuyo día real caiga en la semana siguiente.
+// ---------------------------------------------------------------------
+check('cobertura de becados respeta el corte de mes: septiembre 2026 termina miércoles 30 (semana corta), el resto de esa semana natural (jueves a domingo) es la semana 1 de octubre — nadie se marca "falta" en el mes que no le corresponde', () => {
+  const students = [
+    { id: 'lun', name: 'Lunes Test', active: true, fixedDay: 1 },
+    { id: 'jue', name: 'Jueves Test', active: true, fixedDay: 4 },
+  ];
+  const sepWeeks = Core.monthWeeks(2026, 9);
+  const octWeeks = Core.monthWeeks(2026, 10);
+  const sepWeek5 = sepWeeks[sepWeeks.length - 1];
+  const octWeek1 = octWeeks[0];
+
+  // Confirma el supuesto del propio caso: septiembre corta un miércoles a
+  // mitad de semana, y octubre arranca justo al día siguiente.
+  assert.strictEqual(Core.toISO(sepWeek5.end), '2026-09-30');
+  assert.strictEqual(Core.toISO(octWeek1.start), '2026-10-01');
+
+  // Nadie asignado en ninguna de las dos semanas (como si la propuesta
+  // automática o una edición manual hubiera dejado a todos sin área).
+  const covSep = Core.studentCoverageForWeek(students, toWeekShape(sepWeek5, {}));
+  const covOct = Core.studentCoverageForWeek(students, toWeekShape(octWeek1, {}));
+
+  // El de día fijo lunes: el 28/09 (lunes) cae DENTRO de la semana corta de
+  // septiembre -> le corresponde ahí, no en octubre.
+  assert.ok(covSep.missing.some((m) => m.id === 'lun'), 'el de lunes debería figurar como faltante en la semana corta de septiembre (su día cayó ahí)');
+  assert.ok(!covOct.missing.some((m) => m.id === 'lun'), 'el de lunes NO debería aparecer en octubre: su día ya pasó dentro de septiembre');
+
+  // El de día fijo jueves: la semana corta de septiembre es lunes-miércoles
+  // nada más (no llega a tener jueves) -> su jueves real es el 01/10, ya
+  // parte de la semana 1 de octubre.
+  assert.ok(!covSep.missing.some((m) => m.id === 'jue'), 'el de jueves NO debería figurar como faltante en septiembre: esa semana corta no llega a tener jueves');
+  assert.ok(covOct.missing.some((m) => m.id === 'jue'), 'el de jueves debería figurar como faltante recién en la semana 1 de octubre, que es donde realmente le toca');
 });
 
 console.log(`\n${passed} pruebas OK`);
