@@ -24,17 +24,23 @@
 
   // Orden fijo de columnas/áreas, tal como debe aparecer siempre en la UI.
   //  - maxWeekly = techo estricto semanal (null = sin techo, absorbe lo que sobre).
-  //  - noGapDays = nunca puede quedar 2 días calendario seguidos sin que
-  //    alguien la limpie (Cocina y Comedor: son las de uso diario real).
+  //  - maxGapDays = cuántos días CALENDARIO seguidos puede quedar un área sin
+  //    que nadie la limpie, como máximo — el día siguiente a ese límite ya
+  //    tiene que tener a alguien sí o sí. Se cuenta cruzando semanas y meses
+  //    sin cortes (para el algoritmo, las semanas son siempre continuas; los
+  //    meses son solo un cierre administrativo para quien usa la app).
+  //  - preferredGapDays = para áreas con dos niveles (Cocina 2): el límite
+  //    "cómodo" que se intenta respetar siempre; maxGapDays es el límite
+  //    duro que solo se toca si de verdad no queda otra opción.
   //  - rotationPriority = antes de repetir a alguien acá, tienen que haber
   //    pasado TODOS los estudiantes activos por esta área al menos una vez
   //    (rotación: Escaleras y Lavadero, tareas parejas para repartir en el año).
   const AREAS = [
-    { id: 'kitchen1', label: 'Cocina', points: 7, minWeekly: 4, maxWeekly: null, noGapDays: true },
-    { id: 'kitchen2', label: 'Cocina 2', points: 5, minWeekly: 2, maxWeekly: 3 },
-    { id: 'dining', label: 'Comedor', points: 7, minWeekly: 4, maxWeekly: null, noGapDays: true },
-    { id: 'studyRoom', label: 'Sala Estudios', points: 5, minWeekly: 2, maxWeekly: 3 },
-    { id: 'studyBathroom', label: 'Baño Estudios', points: 5, minWeekly: 2, maxWeekly: 3 },
+    { id: 'kitchen1', label: 'Cocina', points: 7, minWeekly: 4, maxWeekly: null, maxGapDays: 1 },
+    { id: 'kitchen2', label: 'Cocina 2', points: 5, minWeekly: 2, maxWeekly: 3, preferredGapDays: 3, maxGapDays: 4 },
+    { id: 'dining', label: 'Comedor', points: 7, minWeekly: 4, maxWeekly: null, maxGapDays: 1 },
+    { id: 'studyRoom', label: 'Sala Estudios', points: 5, minWeekly: 2, maxWeekly: 3, maxGapDays: 3 },
+    { id: 'studyBathroom', label: 'Baño Estudios', points: 5, minWeekly: 2, maxWeekly: 3, maxGapDays: 3 },
     { id: 'laundry', label: 'Lavadero', points: 3, minWeekly: 1, maxWeekly: 1, rotationPriority: true },
     { id: 'stairs', label: 'Escaleras', points: 3, minWeekly: 1, maxWeekly: 1, rotationPriority: true },
   ];
@@ -173,6 +179,54 @@
     let sum = 0;
     for (const a of sortedAssignments) if (a.studentId === studentId) sum += a.points;
     return sum;
+  }
+
+  // ---------------------------------------------------------------------
+  // Días máximos sin limpiar por área (maxGapDays) — se usa tanto para
+  // detectar el hueco (auditWeek) como para intentar taparlo al generar
+  // (repairGapViolations). Siempre mirando el historial completo, así el
+  // conteo cruza semanas y meses sin cortarse nunca.
+  // ---------------------------------------------------------------------
+
+  /** Fechas (YYYY-MM-DD) donde un área ya fue cubierta, según el historial. */
+  function areaCoveredDatesFromHistory(sortedAssignments, areaId) {
+    const set = new Set();
+    for (const a of sortedAssignments) if (a.area === areaId) set.add(a.date);
+    return set;
+  }
+
+  /**
+   * Para cada fecha de `orderedDates` (días de calendario consecutivos, sin
+   * huecos entre sí), cuántos días seguidos LLEVA sin cubrirse un área hasta
+   * esa fecha inclusive (0 si esa fecha está cubierta).
+   */
+  function gapStreaksByDate(coveredDates, orderedDates) {
+    const streaks = {};
+    let streak = 0;
+    for (const dateISO of orderedDates) {
+      streak = coveredDates.has(dateISO) ? 0 : streak + 1;
+      streaks[dateISO] = streak;
+    }
+    return streaks;
+  }
+
+  /**
+   * Lista de días de calendario consecutivos (reales, sin huecos) desde
+   * `lookbackDays` antes de `firstDateISO` hasta `lastDateISO`. Si hay
+   * historial, el punto de partida nunca retrocede antes de la fecha más
+   * antigua conocida (para no inventar "días fantasma" sin datos antes de
+   * que el calendario existiera).
+   */
+  function extendedDateRange(firstDateISO, lastDateISO, lookbackDays, earliestKnownDateISO) {
+    let start = fromISO(firstDateISO);
+    if (lookbackDays > 0) {
+      start = addDays(start, -lookbackDays);
+      if (earliestKnownDateISO && toISO(start) < earliestKnownDateISO) start = fromISO(earliestKnownDateISO);
+    }
+    const end = fromISO(lastDateISO);
+    const dates = [];
+    for (let cur = start; cur <= end; cur = addDays(cur, 1)) dates.push(toISO(cur));
+    return dates;
   }
 
   function countsForStudent(sortedAssignments, studentId) {
@@ -387,51 +441,66 @@
   }
 
   /**
-   * Tercera pasada: para las áreas "noGapDays" (Cocina y Comedor) no puede
-   * haber dos días calendario seguidos sin nadie asignado. Recorre pares de
-   * días consecutivos de la semana y, si ambos quedaron sin esa área, intenta
-   * mover a un estudiante elegible de alguno de los dos días hacia ahí —
-   * prefiriendo a quien hoy está en un área SIN esta restricción, para no
-   * generar un hueco nuevo al tapar el viejo. Si no encuentra a quién mover,
-   * el hueco queda y auditWeek lo reporta como conflicto.
+   * Tercera pasada: para las áreas con `maxGapDays` (Cocina, Comedor, Sala,
+   * Baño, Cocina 2) no puede quedar más días calendario seguidos sin nadie
+   * asignado que ese límite — contando también los últimos días del
+   * historial (semana/mes anterior), para que el chequeo sea continuo. Por
+   * cada fecha de la propuesta que rompería el límite, busca (retrocediendo
+   * dentro de la propia racha, sin tocar semanas ya bloqueadas) a un
+   * estudiante elegible para mover hacia esa área. Si no encuentra a quién
+   * mover, el hueco queda y auditWeek lo reporta como conflicto.
    */
   function repairGapViolations(results, studentById, sortedAssignments, orderedDates) {
-    const gapAreas = AREAS.filter((a) => a.noGapDays);
-    if (!gapAreas.length) return results;
-    const usedByDate = {};
-    results.forEach((r) => {
-      usedByDate[r.date] = usedByDate[r.date] || new Set();
-      usedByDate[r.date].add(r.area);
-    });
+    const gapAreas = AREAS.filter((a) => a.maxGapDays != null);
+    if (!gapAreas.length || !orderedDates.length) return results;
 
-    for (const area of gapAreas) {
-      for (let i = 0; i < orderedDates.length - 1; i++) {
-        const d1 = orderedDates[i];
-        const d2 = orderedDates[i + 1];
-        const missing1 = !usedByDate[d1] || !usedByDate[d1].has(area.id);
-        const missing2 = !usedByDate[d2] || !usedByDate[d2].has(area.id);
-        if (!missing1 || !missing2) continue;
+    const earliestKnown = sortedAssignments.length ? sortedAssignments[0].date : null;
+    const firstDate = orderedDates[0];
+    const lastDate = orderedDates[orderedDates.length - 1];
+    const proposalDates = new Set(orderedDates);
 
-        let fixed = false;
-        for (const day of [d1, d2]) {
-          const candidates = results
-            .filter((r) => r.date === day)
-            .sort((a, b) => (AREA_BY_ID[a.area].noGapDays ? 1 : 0) - (AREA_BY_ID[b.area].noGapDays ? 1 : 0));
-          for (const r of candidates) {
-            const student = studentById[r.studentId];
-            if (!student) continue;
-            if (!eligibleAreas(student).some((a) => a.id === area.id)) continue;
-            if (lastAreaForStudent(sortedAssignments, student.id, day) === area.id) continue;
-            usedByDate[day].delete(r.area);
-            usedByDate[day].add(area.id);
-            r.area = area.id;
-            fixed = true;
-            break;
+    gapAreas.forEach((area) => {
+      const lookback = earliestKnown ? area.maxGapDays : 0;
+      const fullRange = extendedDateRange(firstDate, lastDate, lookback, earliestKnown);
+
+      let safety = 0;
+      let fixedSomething = true;
+      while (fixedSomething && safety < 20) {
+        fixedSomething = false;
+        safety++;
+        const covered = areaCoveredDatesFromHistory(sortedAssignments, area.id);
+        results.forEach((r) => { if (r.area === area.id) covered.add(r.date); });
+        const streaks = gapStreaksByDate(covered, fullRange);
+
+        for (const dateISO of fullRange) {
+          if (!proposalDates.has(dateISO)) continue; // no se puede tocar una semana ya bloqueada
+          if (streaks[dateISO] <= area.maxGapDays) continue;
+
+          let streakStart = fromISO(dateISO);
+          for (let back = 1; back < streaks[dateISO]; back++) streakStart = addDays(streakStart, -1);
+
+          let fixed = false;
+          for (let d = fromISO(dateISO); d >= streakStart; d = addDays(d, -1)) {
+            const dISO = toISO(d);
+            if (!proposalDates.has(dISO)) continue;
+            const candidates = results
+              .filter((r) => r.date === dISO && r.area !== area.id)
+              .sort((a, b) => (AREA_BY_ID[a.area].maxGapDays != null ? 1 : 0) - (AREA_BY_ID[b.area].maxGapDays != null ? 1 : 0));
+            for (const r of candidates) {
+              const student = studentById[r.studentId];
+              if (!student) continue;
+              if (!eligibleAreas(student).some((a) => a.id === area.id)) continue;
+              if (lastAreaForStudent(sortedAssignments, student.id, dISO) === area.id) continue;
+              r.area = area.id;
+              fixed = true;
+              break;
+            }
+            if (fixed) break;
           }
-          if (fixed) break;
+          if (fixed) { fixedSomething = true; break; }
         }
       }
-    }
+    });
     return results;
   }
 
@@ -581,27 +650,44 @@
       });
     }
 
-    const gapAreas = AREAS.filter((a) => a.noGapDays);
-    if (gapAreas.length) {
-      const usedByDate = {};
-      weekProposal.days.forEach((day) => {
-        usedByDate[day.date] = new Set(day.assignments.map((a) => a.area));
-      });
-      const orderedDates = weekProposal.days.map((d) => d.date);
+    const gapAreas = AREAS.filter((a) => a.maxGapDays != null);
+    if (gapAreas.length && weekProposal.days.length) {
+      const earliestKnown = sortedAssignments.length ? sortedAssignments[0].date : null;
+      const firstDate = weekProposal.days[0].date;
+      const lastDate = weekProposal.days[weekProposal.days.length - 1].date;
+      const proposalDates = new Set(weekProposal.days.map((d) => d.date));
+
       gapAreas.forEach((area) => {
-        for (let i = 0; i < orderedDates.length - 1; i++) {
-          const d1 = orderedDates[i];
-          const d2 = orderedDates[i + 1];
-          if (!usedByDate[d1].has(area.id) && !usedByDate[d2].has(area.id)) {
+        const lookback = earliestKnown ? area.maxGapDays : 0;
+        const fullRange = extendedDateRange(firstDate, lastDate, lookback, earliestKnown);
+        const covered = areaCoveredDatesFromHistory(sortedAssignments, area.id);
+        weekProposal.days.forEach((day) => {
+          if (day.assignments.some((a) => a.area === area.id)) covered.add(day.date);
+        });
+        const streaks = gapStreaksByDate(covered, fullRange);
+        const softLimit = area.preferredGapDays != null ? area.preferredGapDays : area.maxGapDays;
+
+        fullRange.forEach((dateISO) => {
+          if (!proposalDates.has(dateISO)) return; // no repetir avisos de semanas ya bloqueadas
+          const streak = streaks[dateISO];
+          if (streak > area.maxGapDays) {
             warnings.push({
               type: 'gap',
               severity: 'error',
               area: area.id,
-              date: d2,
-              message: `"${area.label}" quedaría sin limpiar dos días seguidos (${d1} y ${d2}). Revisar manualmente.`,
+              date: dateISO,
+              message: `"${area.label}" llevaría ${streak} días seguidos sin limpiarse (contando desde semanas anteriores si corresponde) hasta el ${dateISO} — supera el máximo permitido de ${area.maxGapDays} día(s). Revisar manualmente.`,
+            });
+          } else if (streak > softLimit) {
+            warnings.push({
+              type: 'gapSoft',
+              severity: 'warning',
+              area: area.id,
+              date: dateISO,
+              message: `"${area.label}" llevaría ${streak} días seguidos sin limpiarse hasta el ${dateISO} — por encima de lo preferido (${softLimit}), aunque todavía dentro del máximo tolerado (${area.maxGapDays}).`,
             });
           }
-        }
+        });
       });
     }
 

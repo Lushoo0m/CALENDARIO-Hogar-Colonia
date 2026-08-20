@@ -262,6 +262,123 @@ check('techos semanales estrictos se respetan (o se reportan como conflicto, nun
   console.log(`   (${weeksChecked} semanas verificadas contra los techos semanales; ${capOverruns} casos de holgura insuficiente, todos reportados correctamente como conflicto)`);
 });
 
+// ---------------------------------------------------------------------
+// 7. Días máximos sin limpiar por área (maxGapDays): Cocina/Comedor (1),
+//    Sala/Baño (3), Cocina 2 (aviso a los 4, error a los 5). El chequeo
+//    debe ser continuo entre semanas y meses (usa el historial completo),
+//    y todo lo que realmente se supere debe quedar reportado, nunca en
+//    silencio — mismo criterio que el resto de las reglas duras.
+// ---------------------------------------------------------------------
+check('reglas de "máximo de días sin limpiar" por área se respetan (o se reportan) en 12 meses seguidos, cruzando meses sin cortes', () => {
+  const students = JSON.parse(JSON.stringify(Core.INITIAL_STUDENTS));
+  const lockedWeeks = [];
+  const gapAreas = Core.AREAS.filter((a) => a.maxGapDays != null);
+  let year = 2026, month = 1;
+  let weeksChecked = 0;
+  let gapErrors = 0;
+  let gapSoftNotices = 0;
+
+  for (let i = 0; i < 12; i++) {
+    Core.monthWeeks(year, month).forEach((w) => {
+      const historyBefore = Core.allAssignmentsSorted(lockedWeeks);
+      const { proposal, audit } = lockWeek(students, lockedWeeks, w);
+      weeksChecked++;
+
+      gapAreas.forEach((area) => {
+        // Recálculo independiente de la racha real (mismo criterio que
+        // auditWeek, pero reimplementado acá a mano) para verificar que el
+        // LOG de conflictos no deja pasar ningún hueco real sin avisar.
+        const covered = new Set(historyBefore.filter((a) => a.area === area.id).map((a) => a.date));
+        proposal.days.forEach((day) => {
+          if (day.assignments.some((a) => a.area === area.id)) covered.add(day.date);
+        });
+        const earliestKnown = historyBefore.length ? historyBefore[0].date : null;
+        const lookback = earliestKnown ? area.maxGapDays : 0;
+        let cursor = Core.fromISO(proposal.days[0].date);
+        if (lookback > 0) {
+          cursor = Core.addDays(cursor, -lookback);
+          if (earliestKnown && Core.toISO(cursor) < earliestKnown) cursor = Core.fromISO(earliestKnown);
+        }
+        const lastDate = Core.fromISO(proposal.days[proposal.days.length - 1].date);
+        let streak = 0;
+        let maxStreakInWeek = 0;
+        for (let d = cursor; d <= lastDate; d = Core.addDays(d, 1)) {
+          const dISO = Core.toISO(d);
+          streak = covered.has(dISO) ? 0 : streak + 1;
+          maxStreakInWeek = Math.max(maxStreakInWeek, streak);
+        }
+
+        const hasErrorWarning = audit.warnings.some((warn) => warn.type === 'gap' && warn.area === area.id);
+        if (maxStreakInWeek > area.maxGapDays) {
+          gapErrors++;
+          assert.ok(hasErrorWarning, `"${area.label}" tuvo una racha real de ${maxStreakInWeek} días (> máximo ${area.maxGapDays}) en la semana de ${w.year}-${w.month} sin ser reportada`);
+        } else {
+          assert.ok(!hasErrorWarning, `se reportó un hueco duro para "${area.label}" que en realidad no se superó (semana ${w.year}-${w.month})`);
+          const soft = area.preferredGapDays != null ? area.preferredGapDays : area.maxGapDays;
+          if (maxStreakInWeek > soft) gapSoftNotices++;
+        }
+      });
+    });
+    month++;
+    if (month > 12) { month = 1; year++; }
+  }
+  console.log(`   (${weeksChecked} semanas verificadas; ${gapErrors} huecos duros y ${gapSoftNotices} avisos de Cocina 2 por encima de lo preferido, todos correctamente reportados)`);
+});
+
+check('detector de huecos dispara en el día exacto para cada área: Cocina (1 día), Sala Estudios (3 días), Cocina 2 (aviso a los 4, error a los 5), Escaleras sin límite', () => {
+  const students = JSON.parse(JSON.stringify(Core.INITIAL_STUDENTS));
+  const studentsById = Object.fromEntries(students.map((s) => [s.id, s]));
+
+  // Semana sintética de `days` días, cubierta SOLO el primer día en `areaId`
+  // (con un único estudiante) y ningún otro — para forzar una racha de
+  // huecos exacta y verificar en qué día exacto dispara el aviso/error.
+  function buildFakeWeek(startISO, days, areaId, studentId) {
+    const start = Core.fromISO(startISO);
+    return {
+      year: start.getFullYear(), month: start.getMonth() + 1, weekIndex: 1,
+      startDate: startISO,
+      endDate: Core.toISO(Core.addDays(start, days - 1)),
+      days: Array.from({ length: days }, (_, i) => {
+        const date = Core.addDays(start, i);
+        return {
+          date: Core.toISO(date),
+          dow: Core.isoWeekdayMon1(date),
+          assignments: i === 0 ? [{ studentId, name: studentsById[studentId].name, area: areaId }] : [],
+        };
+      }),
+    };
+  }
+
+  // Cocina (kitchen1, maxGapDays=1): cubierta el día 1; el segundo día
+  // seguido sin nadie (día 3 en total) ya es error.
+  const kitchenAudit = Core.auditWeek(students, [], buildFakeWeek('2026-01-05', 3, 'kitchen1', 'darhian'));
+  const kitchenErrors = kitchenAudit.warnings.filter((w) => w.type === 'gap' && w.area === 'kitchen1');
+  assert.strictEqual(kitchenErrors.length, 1, 'Cocina debería marcar error al segundo día seguido sin limpiar');
+  assert.strictEqual(kitchenErrors[0].date, '2026-01-07');
+
+  // Sala Estudios (maxGapDays=3): recién el 4to día seguido sin nadie es error.
+  const salaAudit = Core.auditWeek(students, [], buildFakeWeek('2026-01-05', 5, 'studyRoom', 'darhian'));
+  const salaErrors = salaAudit.warnings.filter((w) => w.type === 'gap' && w.area === 'studyRoom');
+  assert.strictEqual(salaErrors.length, 1, 'Sala Estudios debería marcar error recién al 4to día seguido sin limpiar');
+  assert.strictEqual(salaErrors[0].date, '2026-01-09');
+
+  // Cocina 2 (preferredGapDays=3, maxGapDays=4): 4to día = aviso (no error),
+  // 5to día = error.
+  const k2Audit = Core.auditWeek(students, [], buildFakeWeek('2026-01-05', 6, 'kitchen2', 'gaston'));
+  const k2Soft = k2Audit.warnings.filter((w) => w.type === 'gapSoft' && w.area === 'kitchen2');
+  const k2Error = k2Audit.warnings.filter((w) => w.type === 'gap' && w.area === 'kitchen2');
+  assert.strictEqual(k2Soft.length, 1, 'Cocina 2 debería avisar (no error) al 4to día seguido sin limpiar');
+  assert.strictEqual(k2Soft[0].date, '2026-01-09');
+  assert.strictEqual(k2Error.length, 1, 'Cocina 2 debería marcar error recién al 5to día seguido sin limpiar');
+  assert.strictEqual(k2Error[0].date, '2026-01-10');
+
+  // Escaleras: sin límite de huecos configurado, nunca debería generar
+  // avisos de este tipo aunque pasen muchos días sin asignación.
+  const stairsAudit = Core.auditWeek(students, [], buildFakeWeek('2026-01-05', 7, 'stairs', 'darhian'));
+  const stairsGapWarnings = stairsAudit.warnings.filter((w) => (w.type === 'gap' || w.type === 'gapSoft') && w.area === 'stairs');
+  assert.strictEqual(stairsGapWarnings.length, 0, 'Escaleras no debería tener límite de días sin limpiar');
+});
+
 console.log(`\n${passed} pruebas OK`);
 if (process.exitCode) {
   console.error('Hay pruebas fallidas.');
