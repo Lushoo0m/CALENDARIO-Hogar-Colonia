@@ -670,6 +670,7 @@
         const actionsHtml = editing ? `
             <div class="btn-row">
               <button class="btn" data-action="save-month-edit">Guardar corrección</button>
+              <button class="btn secondary" data-action="regenerate-month">Regenerar mes automáticamente</button>
               <button class="btn secondary" data-action="cancel-month-edit">Cancelar</button>
             </div>` : `
             <div class="btn-row">
@@ -825,6 +826,36 @@
     editingMonthKey = null;
     editingMonthDraft = null;
     renderAll();
+  }
+
+  // "Regenerar mes automáticamente": vuelve a correr el algoritmo para
+  // TODAS las semanas del mes en edición, sin importar cómo esté repartido
+  // ahora mismo (manual o no) — busca de nuevo el mejor reparto posible.
+  // Cada semana se recalcula contra el historial real que le corresponde
+  // (lo de afuera del mes + lo que ya se recalculó de este mismo mes en las
+  // semanas anteriores), igual que si se generaran una por una en orden,
+  // para que el mes entero quede coherente entre sí, no solo semana por
+  // semana. Es una foto nueva del borrador: no se guarda hasta "Guardar
+  // corrección", así que "Cancelar" siempre puede volver atrás.
+  function handleRegenerateMonthClick() {
+    if (!editingMonthDraft) return;
+    const draftStarts = new Set(editingMonthDraft.map((w) => w.startDate));
+    let history = state.lockedWeeks.filter((w) => !draftStarts.has(w.startDate));
+    editingMonthDraft = editingMonthDraft.map((week) => {
+      const weekInfo = {
+        index: week.weekIndex,
+        year: week.year,
+        month: week.month,
+        start: Core.fromISO(week.startDate),
+        end: Core.fromISO(week.endDate),
+        days: week.days.map((d) => Core.fromISO(d.date)),
+      };
+      const proposal = Core.generateWeekProposal(state.students, history, weekInfo);
+      history = [...history, proposal];
+      return proposal;
+    });
+    renderAll();
+    showToast('Mes regenerado automáticamente, semana por semana.');
   }
 
   // Estas tres tocan el borrador de corrección de mes (editingMonthDraft),
@@ -1247,6 +1278,7 @@
           ${renderEditableMonthGridTable(editingMonthDraft, studentsById)}
           <div class="btn-row">
             <button class="btn" data-action="save-month-edit">Guardar corrección</button>
+            <button class="btn secondary" data-action="regenerate-month">Regenerar mes automáticamente</button>
             <button class="btn secondary" data-action="cancel-month-edit">Cancelar</button>
           </div>
         </div>`;
@@ -1629,6 +1661,7 @@
       else if (action === 'start-month-edit') handleStartMonthEdit(btn.dataset.monthKey);
       else if (action === 'cancel-month-edit') handleCancelMonthEdit();
       else if (action === 'save-month-edit') handleSaveMonthEdit();
+      else if (action === 'regenerate-month') handleRegenerateMonthClick();
       else if (action === 'toggle-conflict-cell') handleToggleConflictCell(btn.dataset.key);
       else if (action === 'toggle-day-add') handleToggleDayAddForm(btn.dataset.key);
       else if (action === 'toggle-severity-group') handleToggleSeverityGroup(btn.dataset.key);
@@ -1704,6 +1737,7 @@
       else if (action === 'toggle-month') handleToggleMonth(btn.dataset.monthKey);
       else if (action === 'request-month-edit') handleRequestMonthEdit(btn.dataset.monthKey);
       else if (action === 'save-month-edit') handleSaveMonthEdit();
+      else if (action === 'regenerate-month') handleRegenerateMonthClick();
       else if (action === 'cancel-month-edit') handleCancelMonthEdit();
       else if (action === 'toggle-conflict-cell') handleToggleConflictCell(btn.dataset.key);
       else if (action === 'toggle-day-add') handleToggleDayAddForm(btn.dataset.key);
