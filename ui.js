@@ -28,6 +28,11 @@
   // Formularios de "agregar estudiante a este día" que el supervisor tocó
   // para desplegar, en las grillas editables. Solo estado de UI.
   const expandedDayAddForms = new Set();
+  // Burbujas de gravedad (LOG de conflictos) que el supervisor tocó para
+  // desplegar el resumen de esa gravedad, y conflictos individuales dentro
+  // de una burbuja que tocó para ver el texto completo. Solo estado de UI.
+  const expandedSeverityGroups = new Set();
+  const expandedConflictItems = new Set();
 
   function defaultState() {
     return {
@@ -328,45 +333,95 @@
   }
 
   // Severidades usadas por Core.auditWeek, ordenadas de más a menos grave.
-  // Cada una es una "señal" clickeable (icono + contador) que despliega su
-  // propia lista de mensajes — más grave, más grande y más llamativa.
+  // Cada una es una "burbuja" clickeable (icono + contador) que despliega el
+  // resumen de esa gravedad — más grave, más grande y más llamativa.
   const SEVERITY_META = {
     error: { icon: '🚨', label: 'Conflictos graves', className: 'sev-error' },
     warning: { icon: '⚠️', label: 'Conflictos moderados', className: 'sev-warning' },
     info: { icon: '⚠', label: 'Avisos menores', className: 'sev-info' },
   };
   const SEVERITY_ORDER = ['error', 'warning', 'info'];
+  // A partir de esta cantidad de conflictos en una misma burbuja, cada uno
+  // se muestra resumido (1 línea) y hay que tocarlo para ver el texto
+  // completo. Por debajo, no vale la pena resumir: se muestra entero directo.
+  const SUMMARY_THRESHOLD = 3;
 
-  function renderSeverityLog(warnings, prefixFor) {
+  // Frase corta para identificar un conflicto de un vistazo, sin tener que
+  // leer el mensaje completo (que puede ser largo). Se arma con los campos
+  // que ya trae cada warning (área/fecha/estudiante), no con el texto.
+  function conflictSummary(w, studentsById) {
+    const student = w.studentId ? studentsById[w.studentId] : null;
+    const studentName = student ? student.name : 'Estudiante';
+    const areaLbl = w.area ? Core.areaLabel(w.area) : 'Área';
+    const dateLbl = w.date ? Core.formatDateEs(Core.fromISO(w.date)) : '';
+    const dateSuffix = dateLbl ? ` (${dateLbl})` : '';
+    switch (w.type) {
+      case 'repeat': return `${studentName} repite área${dateSuffix}`;
+      case 'kitchenGroup': return `${studentName} — grupo de cocina${dateSuffix}`;
+      case 'sameDayConflict': return `${areaLbl} duplicada${dateSuffix}`;
+      case 'gap': return `${areaLbl} — hueco${dateSuffix}`;
+      case 'gapSoft': return `${areaLbl} — por encima de lo preferido${dateSuffix}`;
+      case 'minimum': return `${areaLbl} bajo el mínimo semanal`;
+      case 'maximum': return `${areaLbl} superó el techo semanal`;
+      default: return w.message.length > 60 ? `${w.message.slice(0, 57)}…` : w.message;
+    }
+  }
+
+  // Fila de burbujas (una al lado de la otra) + los paneles desplegados
+  // debajo. `groupKeyPrefix` distingue esta grilla de cualquier otra que
+  // pueda estar en pantalla al mismo tiempo (propuesta, semana anterior en
+  // edición, corrección de mes), para que abrir una no afecte a las demás.
+  function renderSeverityLog(warnings, groupKeyPrefix, studentsById, prefixFor) {
     if (!warnings.length) {
       return '<div class="alert ok">✓ Sin conflictos ni alertas detectadas.</div>';
     }
     const groups = {};
     warnings.forEach((w) => { (groups[w.severity] = groups[w.severity] || []).push(w); });
-    return `<div class="severity-log">${SEVERITY_ORDER.filter((sev) => groups[sev] && groups[sev].length).map((sev) => {
+    const present = SEVERITY_ORDER.filter((sev) => groups[sev] && groups[sev].length);
+
+    const bubbles = present.map((sev) => {
       const meta = SEVERITY_META[sev];
       const items = groups[sev];
-      return `
-        <details class="severity-group ${meta.className}">
-          <summary>
-            <span class="severity-icon" aria-hidden="true">${meta.icon}</span>
-            <span class="severity-label">${escapeHtml(meta.label)}</span>
-            <span class="severity-count">${items.length}</span>
-          </summary>
-          <div class="severity-items">
-            ${items.map((w) => `<div class="alert ${w.severity}">${prefixFor ? escapeHtml(prefixFor(w)) : ''}${escapeHtml(w.message)}</div>`).join('')}
-          </div>
-        </details>`;
-    }).join('')}</div>`;
+      const groupKey = `${groupKeyPrefix}|${sev}`;
+      const isOpen = expandedSeverityGroups.has(groupKey);
+      return `<button type="button" class="severity-bubble ${meta.className} ${isOpen ? 'is-open' : ''}" data-action="toggle-severity-group" data-key="${escapeHtml(groupKey)}">
+        <span class="severity-icon" aria-hidden="true">${meta.icon}</span>
+        <span class="severity-label">${escapeHtml(meta.label)}</span>
+        <span class="severity-count">${items.length}</span>
+      </button>`;
+    }).join('');
+
+    const panels = present.filter((sev) => expandedSeverityGroups.has(`${groupKeyPrefix}|${sev}`)).map((sev) => {
+      const meta = SEVERITY_META[sev];
+      const items = groups[sev];
+      const groupKey = `${groupKeyPrefix}|${sev}`;
+      const needsSummary = items.length >= SUMMARY_THRESHOLD;
+      const itemsHtml = items.map((w, idx) => {
+        const prefixHtml = prefixFor ? escapeHtml(prefixFor(w)) : '';
+        if (!needsSummary) {
+          return `<div class="alert ${w.severity}">${prefixHtml}${escapeHtml(w.message)}</div>`;
+        }
+        const itemKey = `${groupKey}|${idx}`;
+        const itemOpen = expandedConflictItems.has(itemKey);
+        const label = itemOpen
+          ? `${prefixHtml}${escapeHtml(w.message)}`
+          : `${prefixHtml}${escapeHtml(conflictSummary(w, studentsById))}`;
+        return `<button type="button" class="conflict-item alert ${w.severity} ${itemOpen ? 'is-open' : ''}" data-action="toggle-conflict-item" data-key="${escapeHtml(itemKey)}" title="${itemOpen ? 'Tocá para resumir' : 'Tocá para ver el conflicto completo'}">${label}</button>`;
+      }).join('');
+      return `<div class="severity-panel ${meta.className}">${itemsHtml}</div>`;
+    }).join('');
+
+    return `<div class="severity-log"><div class="severity-bubbles">${bubbles}</div>${panels}</div>`;
   }
 
-  function renderAudit(audit) {
-    return renderSeverityLog(audit.warnings);
+  function renderAudit(audit, groupKeyPrefix, studentsById, prefixFor) {
+    return renderSeverityLog(audit.warnings, groupKeyPrefix, studentsById || {}, prefixFor);
   }
 
   // Cuenta becados vs. asignados esta semana; si sobra alguien sin
-  // asignación, la señal roja se despliega con los nombres.
-  function renderCoverageSignal(students, weekLike, prefix) {
+  // asignación, aparece una burbuja roja más que al tocarla despliega los
+  // nombres.
+  function renderCoverageSignal(students, weekLike, groupKeyPrefix, prefix) {
     const coverage = Core.studentCoverageForWeek(students, weekLike);
     const countLabel = `${coverage.assignedCount}/${coverage.expectedCount}`;
     const partialNote = coverage.expectedCount < coverage.totalActive
@@ -375,17 +430,17 @@
     if (!coverage.missing.length) {
       return `<div class="coverage-line ok">✓ ${escapeHtml(prefix || '')}Estudiantes con beca cubiertos esta semana: <strong>${countLabel}</strong>${partialNote}</div>`;
     }
-    return `
-      <details class="severity-group sev-error coverage-line">
-        <summary>
-          <span class="severity-icon" aria-hidden="true">🚩</span>
-          <span class="severity-label">${escapeHtml(prefix || '')}Estudiantes con beca SIN asignar esta semana (${countLabel} cubiertos)</span>
-          <span class="severity-count">${coverage.missing.length}</span>
-        </summary>
-        <div class="severity-items">
-          <div class="alert error">Sin ninguna asignación esta semana: ${coverage.missing.map((m) => escapeHtml(m.name)).join(', ')}.${partialNote}</div>
-        </div>
-      </details>`;
+    const groupKey = `${groupKeyPrefix}|coverage`;
+    const isOpen = expandedSeverityGroups.has(groupKey);
+    const bubble = `<button type="button" class="severity-bubble sev-error ${isOpen ? 'is-open' : ''}" data-action="toggle-severity-group" data-key="${escapeHtml(groupKey)}">
+      <span class="severity-icon" aria-hidden="true">🚩</span>
+      <span class="severity-label">${escapeHtml(prefix || '')}Becados sin asignar (${countLabel} cubiertos)</span>
+      <span class="severity-count">${coverage.missing.length}</span>
+    </button>`;
+    const panel = isOpen
+      ? `<div class="severity-panel sev-error"><div class="alert error">Sin ninguna asignación esta semana: ${coverage.missing.map((m) => escapeHtml(m.name)).join(', ')}.${partialNote}</div></div>`
+      : '';
+    return `<div class="severity-log"><div class="severity-bubbles">${bubble}</div>${panel}</div>`;
   }
 
   // Misma grilla Día × Área que renderWeekGridTable, pero cada celda ocupada
@@ -449,7 +504,7 @@
           <div class="week-card-head"><h3>${escapeHtml(heading)} <span class="muted">— ${escapeHtml(editingSubtitle)}</span></h3>${toggle}</div>
           <p class="muted">${escapeHtml(label)}</p>
           <div class="alert warning">Estás editando esta semana mientras revisás el resto. Los cambios se guardan al volver a bloquear (switch), y ahí se recalcula lo que dependa del historial nuevo.</div>
-          <div class="audit-list">${renderAudit(ownAudit)}${renderCoverageSignal(state.students, editingWeekDraft)}</div>
+          <div class="audit-list">${renderAudit(ownAudit, `audit|draft|${editingWeekDraft.startDate}`, studentsById)}${renderCoverageSignal(state.students, editingWeekDraft, `audit|draft|${editingWeekDraft.startDate}`)}</div>
           ${renderEditableWeekGridTable(editingWeekDraft, studentsById, 'draft')}
           <div class="btn-row">
             <button class="btn" data-action="confirm-previous-week">Confirmar y bloquear de nuevo</button>
@@ -507,7 +562,7 @@
         <div class="card">
           <h2>Propuesta: ${escapeHtml(label)}</h2>
           <p class="muted">Editá el área de cada estudiante directo en la grilla. La IA nunca aplica esto por su cuenta: queda a la espera de que lo apruebes.</p>
-          <div class="audit-list">${renderAudit(audit)}${renderCoverageSignal(state.students, proposal)}</div>
+          <div class="audit-list">${renderAudit(audit, `audit|proposal|${proposal.startDate}`, studentsById)}${renderCoverageSignal(state.students, proposal, `audit|proposal|${proposal.startDate}`)}</div>
         </div>
         <div class="card">
           <h3>Vista previa (editable)</h3>
@@ -551,9 +606,10 @@
         const auditHtml = editing
           ? (() => {
               const warnings = auditMonthDraft(editingMonthDraft);
-              const conflictsHtml = renderSeverityLog(warnings, (w) => `Semana ${w.weekIndex}: `);
+              const gk = `audit|month|${closedKey}`;
+              const conflictsHtml = renderSeverityLog(warnings, gk, studentsById, (w) => `Semana ${w.weekIndex}: `);
               const coverageHtml = editingMonthDraft
-                .map((week) => renderCoverageSignal(state.students, week, `Semana ${week.weekIndex}: `))
+                .map((week) => renderCoverageSignal(state.students, week, `${gk}|w${week.weekIndex}`, `Semana ${week.weekIndex}: `))
                 .join('');
               return conflictsHtml + coverageHtml;
             })()
@@ -744,6 +800,22 @@
   function handleToggleDayAddForm(key) {
     if (expandedDayAddForms.has(key)) expandedDayAddForms.delete(key);
     else expandedDayAddForms.add(key);
+    renderAll();
+  }
+
+  // Despliega/cierra el resumen de una burbuja de gravedad del LOG de
+  // conflictos. Solo estado de UI.
+  function handleToggleSeverityGroup(key) {
+    if (expandedSeverityGroups.has(key)) expandedSeverityGroups.delete(key);
+    else expandedSeverityGroups.add(key);
+    renderAll();
+  }
+
+  // Despliega/resume un conflicto individual dentro de una burbuja ya
+  // abierta (cuando hay 3 o más, cada uno arranca resumido). Solo estado de UI.
+  function handleToggleConflictItem(key) {
+    if (expandedConflictItems.has(key)) expandedConflictItems.delete(key);
+    else expandedConflictItems.add(key);
     renderAll();
   }
 
@@ -1117,8 +1189,9 @@
 
       const buildEditBodyHtml = () => {
         const warnings = auditMonthDraft(editingMonthDraft);
-        const auditHtml = renderSeverityLog(warnings, (w) => `Semana ${w.weekIndex}: `)
-          + editingMonthDraft.map((week) => renderCoverageSignal(state.students, week, `Semana ${week.weekIndex}: `)).join('');
+        const gk = `audit|month|${key}`;
+        const auditHtml = renderSeverityLog(warnings, gk, studentsById, (w) => `Semana ${w.weekIndex}: `)
+          + editingMonthDraft.map((week) => renderCoverageSignal(state.students, week, `${gk}|w${week.weekIndex}`, `Semana ${week.weekIndex}: `)).join('');
         return `
         <div class="month-card-body">
           ${auditHtml}
@@ -1509,6 +1582,8 @@
       else if (action === 'save-month-edit') handleSaveMonthEdit();
       else if (action === 'toggle-conflict-cell') handleToggleConflictCell(btn.dataset.key);
       else if (action === 'toggle-day-add') handleToggleDayAddForm(btn.dataset.key);
+      else if (action === 'toggle-severity-group') handleToggleSeverityGroup(btn.dataset.key);
+      else if (action === 'toggle-conflict-item') handleToggleConflictItem(btn.dataset.key);
       else if (action === 'remove-assignment') handleRemoveAssignment(btn.dataset.date, btn.dataset.student);
       else if (action === 'edit-week-remove-assignment') handleEditWeekRemoveAssignment(btn.dataset.date, btn.dataset.student);
       else if (action === 'remove-month-assignment') handleRemoveMonthAssignment(btn.dataset.weekStart, btn.dataset.date, btn.dataset.student);
@@ -1583,6 +1658,8 @@
       else if (action === 'cancel-month-edit') handleCancelMonthEdit();
       else if (action === 'toggle-conflict-cell') handleToggleConflictCell(btn.dataset.key);
       else if (action === 'toggle-day-add') handleToggleDayAddForm(btn.dataset.key);
+      else if (action === 'toggle-severity-group') handleToggleSeverityGroup(btn.dataset.key);
+      else if (action === 'toggle-conflict-item') handleToggleConflictItem(btn.dataset.key);
       else if (action === 'remove-month-assignment') handleRemoveMonthAssignment(btn.dataset.weekStart, btn.dataset.date, btn.dataset.student);
       else if (action === 'add-month-assignment') {
         const form = btn.closest('.day-add-form');
