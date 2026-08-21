@@ -1,0 +1,6 @@
+deploy/
+*.bat
+.git
+data.json
+access-code.txt
+guest-code.txt
