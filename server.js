@@ -6,12 +6,16 @@
  * calendario en vez de una copia por navegador.
  *
  * Acceso restringido: pide usuario/clave (autenticación HTTP básica, la
- * ventana nativa del navegador) antes de dejar pasar CUALQUIER pedido. La
- * clave vive en access-code.txt junto a este archivo — si no existe, se
- * genera una la primera vez que se prende el servidor. Para cambiarla:
- * editá ese archivo y reiniciá el servidor. También hay un bloqueo
- * temporal por IP después de varios intentos fallidos seguidos, para
- * dificultar que alguien la adivine a fuerza bruta.
+ * ventana nativa del navegador) antes de dejar pasar CUALQUIER pedido. Hay
+ * DOS niveles de clave, cada una en su propio archivo junto a este:
+ *   - access-code.txt: admin — acceso total, puede ver y guardar cambios.
+ *   - guest-code.txt: invitado — solo puede leer (GET); cualquier intento
+ *     de guardar (POST /api/state) le devuelve 403.
+ * Si algún archivo no existe, se genera una clave nueva la primera vez que
+ * se prende el servidor. Para cambiar alguna: editá el archivo y reiniciá
+ * el servidor. También hay un bloqueo temporal por IP después de varios
+ * intentos fallidos seguidos (con cualquiera de las dos claves), para
+ * dificultar que alguien las adivine a fuerza bruta.
  *
  * Nota de seguridad honesta: este servidor en sí mismo habla HTTP plano
  * (sin cifrar) — alcanza para uso solo-en-tu-WiFi-de-casa. Para exponerlo
@@ -30,6 +34,7 @@ const crypto = require('crypto');
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data.json');
 const ACCESS_CODE_FILE = path.join(__dirname, 'access-code.txt');
+const GUEST_CODE_FILE = path.join(__dirname, 'guest-code.txt');
 const PUBLIC_FILES = new Set(['/index.html', '/styles.css', '/core.js', '/ui.js', '/manifest.json', '/sw.js', '/icon-192.png', '/icon-512.png']);
 const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript', '.json': 'application/json', '.png': 'image/png' };
 
@@ -37,17 +42,20 @@ const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/jav
 // servidor termina expuesto a internet, donde cualquiera podría intentar
 // adivinarlo a fuerza bruta. Formato en grupos para que se pueda leer y
 // tipear sin tanto lío: ej. "a3f9-08c1-77de-44aa" (64 bits al azar).
-function loadOrCreateAccessCode() {
+// Misma función para las dos claves (admin e invitado), cada una en su
+// propio archivo, generadas independientes la primera vez.
+function loadOrCreateCode(file) {
   try {
-    const existing = fs.readFileSync(ACCESS_CODE_FILE, 'utf8').trim();
+    const existing = fs.readFileSync(file, 'utf8').trim();
     if (existing) return existing;
   } catch { /* no existe todavía: se genera abajo */ }
   const hex = crypto.randomBytes(8).toString('hex');
   const generated = hex.match(/.{1,4}/g).join('-');
-  fs.writeFileSync(ACCESS_CODE_FILE, generated);
+  fs.writeFileSync(file, generated);
   return generated;
 }
-const ACCESS_CODE = loadOrCreateAccessCode();
+const ACCESS_CODE = loadOrCreateCode(ACCESS_CODE_FILE);
+const GUEST_CODE = loadOrCreateCode(GUEST_CODE_FILE);
 
 // Bloqueo temporal por IP tras varios intentos fallidos seguidos — sin
 // esto, el código de acceso (por más largo que sea) queda expuesto a
@@ -99,31 +107,46 @@ setInterval(() => {
   }
 }, 30 * 60 * 1000).unref();
 
-function isAuthorized(req) {
+// Compara una clave (buffer, largo fijo por igual-longitud) de forma
+// segura contra el tiempo — evita que un atacante deduzca la clave
+// midiendo cuánto tarda la comparación byte a byte.
+function safeEquals(a, b) {
+  return a.length === b.length && crypto.timingSafeEqual(a, b); // timingSafeEqual exige igual longitud
+}
+
+// Cuál de las dos claves coincide con la que mandó el pedido, o null si no
+// coincide con ninguna. Si por error se configuran las dos claves iguales,
+// gana "admin" (se chequea primero).
+function roleFromRequest(req) {
   const header = req.headers.authorization || '';
-  if (!header.startsWith('Basic ')) return false;
+  if (!header.startsWith('Basic ')) return null;
   let password = '';
   try {
     const decoded = Buffer.from(header.slice(6), 'base64').toString('utf8');
     password = decoded.split(':').slice(1).join(':'); // "usuario:clave" — el usuario no se valida
-  } catch { return false; }
-  const a = Buffer.from(password);
-  const b = Buffer.from(ACCESS_CODE);
-  if (a.length !== b.length) return false; // timingSafeEqual exige igual longitud
-  return crypto.timingSafeEqual(a, b);
+  } catch { return null; }
+  const input = Buffer.from(password);
+  if (safeEquals(input, Buffer.from(ACCESS_CODE))) return 'admin';
+  if (safeEquals(input, Buffer.from(GUEST_CODE))) return 'guest';
+  return null;
 }
 
+// Devuelve el rol ('admin' | 'guest') del pedido autenticado, o null si hay
+// que cortar acá (ya mandó la respuesta de error correspondiente: 429 si
+// está bloqueado por intentos fallidos, 401 si la clave no coincide con
+// ninguna de las dos).
 function requireAuth(req, res) {
   const ip = clientIp(req);
   if (isLockedOut(ip)) {
     const body = 'Demasiados intentos fallidos desde esta conexión. Esperá unos minutos y volvé a intentar.';
     res.writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '600' });
     res.end(body);
-    return false;
+    return null;
   }
-  if (isAuthorized(req)) {
+  const role = roleFromRequest(req);
+  if (role) {
     registerSuccess(ip);
-    return true;
+    return role;
   }
   registerFailedAttempt(ip);
   res.writeHead(401, {
@@ -131,7 +154,7 @@ function requireAuth(req, res) {
     'Content-Type': 'text/plain; charset=utf-8',
   });
   res.end('Acceso restringido. Pedile la clave a quien administra el calendario.');
-  return false;
+  return null;
 }
 
 function sendJson(res, status, obj) {
@@ -173,7 +196,8 @@ function readBody(req, maxBytes, cb) {
 }
 
 const server = http.createServer((req, res) => {
-  if (!requireAuth(req, res)) return;
+  const role = requireAuth(req, res);
+  if (!role) return;
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   if (url.pathname === '/api/state' && req.method === 'GET') {
@@ -185,6 +209,13 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/api/state' && req.method === 'POST') {
+    // Invitado: solo lectura. Se corta acá, antes de leer el cuerpo del
+    // pedido, para no gastar ancho de banda en un guardado que de todos
+    // modos no se va a aplicar.
+    if (role !== 'admin') {
+      sendJson(res, 403, { error: 'Acceso de solo lectura: no se pueden guardar cambios con este código.' });
+      return;
+    }
     readBody(req, 5 * 1024 * 1024, (err, raw) => {
       if (err) { sendJson(res, 413, { error: 'Cuerpo demasiado grande' }); return; }
       let parsed;
@@ -246,8 +277,11 @@ server.listen(PORT, () => {
     console.log(`  Para compartir en tu red doméstica (otra compu o celular en el mismo Wi-Fi): http://${addr}:${PORT}`);
   });
   console.log('');
-  console.log(`  Clave de acceso (pedila a quien quieras dejar entrar): ${ACCESS_CODE}`);
+  console.log(`  Clave de ADMIN (acceso total, puede ver y guardar cambios): ${ACCESS_CODE}`);
   console.log(`  (guardada en ${ACCESS_CODE_FILE} — para cambiarla, editá ese archivo y reiniciá el servidor)`);
+  console.log('');
+  console.log(`  Clave de INVITADO (solo puede ver, no puede guardar cambios): ${GUEST_CODE}`);
+  console.log(`  (guardada en ${GUEST_CODE_FILE} — para cambiarla, editá ese archivo y reiniciá el servidor)`);
   console.log('');
   console.log('Dejá esta ventana abierta mientras uses la app. Para apagarlo: Ctrl+C.');
 });

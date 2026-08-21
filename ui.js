@@ -95,10 +95,19 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(state),
+      }).then((res) => {
+        // fetch no rechaza la promesa por códigos 4xx/5xx (solo por errores
+        // de red) — sin este chequeo, un guardado rechazado por el servidor
+        // (ej. 403 de una clave de solo lectura) se vería como "guardado"
+        // en la UI aunque en realidad no haya pasado nada.
+        if (!res.ok) throw new Error(`status ${res.status}`);
       }).catch((e) => {
         console.error('No se pudo guardar en el servidor; se guarda localmente como respaldo.', e);
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e2) { /* noop */ }
-        showToast('No se pudo guardar en el servidor. Revisá que server.js siga corriendo.');
+        const message = String(e && e.message).includes('403')
+          ? 'Este código es de solo lectura: los cambios no se guardaron en el servidor.'
+          : 'No se pudo guardar en el servidor. Revisá que server.js siga corriendo.';
+        showToast(message);
       });
     } else {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { console.error(e); }
