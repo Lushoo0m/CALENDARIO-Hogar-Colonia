@@ -23,7 +23,15 @@
  * proxy con HTTPS real (ver deploy/Caddyfile) — nunca expongas este puerto
  * directo a internet sin eso, porque la clave viajaría sin cifrar.
  *
+ * Los tres archivos de datos (data.json, access-code.txt, guest-code.txt)
+ * viven, por defecto, junto a este archivo — igual que siempre. Si se
+ * define la variable de entorno DATA_DIR, viven ahí en cambio (se crea la
+ * carpeta sola si no existe). Pensado para Docker: montá esa carpeta como
+ * volumen persistente y un despliegue nuevo (imagen nueva) nunca te borra
+ * los datos reales, aunque el código sí se reemplace entero.
+ *
  * Uso: node server.js
+ *      DATA_DIR=/ruta/persistente node server.js
  */
 const http = require('http');
 const fs = require('fs');
@@ -32,9 +40,16 @@ const os = require('os');
 const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
-const DATA_FILE = path.join(__dirname, 'data.json');
-const ACCESS_CODE_FILE = path.join(__dirname, 'access-code.txt');
-const GUEST_CODE_FILE = path.join(__dirname, 'guest-code.txt');
+// Sin DATA_DIR, todo queda junto al código (comportamiento de siempre, el
+// que sigue usando el flujo de Windows con los .bat). Con DATA_DIR, los
+// tres archivos de datos se separan del código — necesario en Docker,
+// donde el código se reemplaza en cada despliegue pero el volumen montado
+// en DATA_DIR persiste entre imágenes.
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : __dirname;
+if (DATA_DIR !== __dirname) fs.mkdirSync(DATA_DIR, { recursive: true });
+const DATA_FILE = path.join(DATA_DIR, 'data.json');
+const ACCESS_CODE_FILE = path.join(DATA_DIR, 'access-code.txt');
+const GUEST_CODE_FILE = path.join(DATA_DIR, 'guest-code.txt');
 const PUBLIC_FILES = new Set(['/index.html', '/styles.css', '/core.js', '/ui.js', '/manifest.json', '/sw.js', '/icon-192.png', '/icon-512.png']);
 const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript', '.json': 'application/json', '.png': 'image/png' };
 
@@ -270,7 +285,8 @@ server.on('error', (err) => {
 server.listen(PORT, () => {
   console.log('');
   console.log('Calendario de Limpieza — Hogar Colonia');
-  console.log('Servidor corriendo. Los datos se guardan en:', DATA_FILE);
+  console.log('Servidor corriendo. Los datos se guardan en:', DATA_DIR);
+  if (process.env.DATA_DIR) console.log('(DATA_DIR configurado por variable de entorno)');
   console.log('');
   console.log(`  En esta compu:        http://localhost:${PORT}`);
   localAddresses().forEach((addr) => {
