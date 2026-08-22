@@ -1951,11 +1951,19 @@
     initSemanasEvents();
     const retryBtn = document.getElementById('offline-retry');
     if (retryBtn) retryBtn.addEventListener('click', () => window.location.reload());
+    const syncStart = Date.now();
     await initState();
     renderAll();
     // Recién acá se destapa la app — hasta este punto, "Sincronizando
     // datos…" tapaba todo para que nunca se llegara a ver una pestaña
-    // vacía o vieja como si fuera el calendario real.
+    // vacía o vieja como si fuera el calendario real. Se mantiene un tiempo
+    // mínimo visible aunque la respuesta sea instantánea (conexión rápida):
+    // sin esto, en una red rápida el aviso puede aparecer y desaparecer en
+    // una fracción de segundo, demasiado rápido para confirmar a simple
+    // vista que está funcionando.
+    const minVisibleMs = 500;
+    const elapsed = Date.now() - syncStart;
+    if (elapsed < minVisibleMs) await sleep(minVisibleMs - elapsed);
     const overlay = document.getElementById('sync-overlay');
     if (overlay) overlay.remove();
   });
