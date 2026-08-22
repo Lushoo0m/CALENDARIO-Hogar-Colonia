@@ -16,6 +16,15 @@
   <meta name="apple-mobile-web-app-title" content="Hogar Colonia" />
 </head>
 <body>
+  <!-- Se ve mientras se trae el estado real del servidor al abrir la app —
+       tapa todo para que nunca se llegue a ver una pestaña vacía/vieja
+       creyendo que ese es el calendario real. Se oculta desde ui.js recién
+       cuando la respuesta (o el reintento, o el aviso de error) ya llegó. -->
+  <div id="sync-overlay" class="sync-overlay">
+    <div class="spinner" aria-hidden="true"></div>
+    <p>Sincronizando datos…</p>
+  </div>
+
   <div id="app">
     <header class="app-header">
       <h1>Calendario de Limpieza — Hogar Colonia</h1>
@@ -27,8 +36,20 @@
       </nav>
     </header>
 
+    <div id="offline-banner" class="offline-banner" hidden>
+      ⚠ No se pudo conectar con el servidor compartido: estás viendo una copia
+      local de este navegador, que puede estar vacía o desactualizada.
+      Revisá tu conexión (o la VPN) y <button type="button" id="offline-retry">volvé a intentar</button>.
+    </div>
+
     <main class="app-main">
-      <section id="tab-generar" class="tab-panel active"><p class="muted">Cargando…</p></section>
+      <section id="tab-generar" class="tab-panel active">
+        <div class="generar-toolbar">
+          <button type="button" id="fullscreen-toggle" class="btn small secondary" hidden>⛶ Pantalla completa</button>
+        </div>
+        <p class="landscape-hint muted">💡 Para más espacio, girá el celular a horizontal.</p>
+        <div id="generar-content"><p class="muted">Cargando…</p></div>
+      </section>
       <section id="tab-estudiantes" class="tab-panel"></section>
       <section id="tab-semanas" class="tab-panel"></section>
     </main>

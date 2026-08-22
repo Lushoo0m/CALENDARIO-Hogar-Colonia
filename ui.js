@@ -64,17 +64,42 @@
     }
   }
 
-  // undefined = no hay servidor disponible (modo standalone); null = hay
-  // servidor pero todavía no guardó nada; objeto = estado real del servidor.
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // Un solo intento de traer el estado — sin reintentos acá, eso lo maneja
+  // loadStateFromServer. Puede fallar por cualquier motivo de red (VPN
+  // reconectando, datos móviles con un pestañeo, servidor reiniciando).
+  async function fetchStateOnce() {
+    const res = await fetch('/api/state', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`status ${res.status}`);
+    const data = await res.json();
+    return data ? normalizeState(data) : null;
+  }
+
+  // undefined = no hay servidor disponible después de reintentar (modo
+  // standalone); null = hay servidor pero todavía no guardó nada; objeto =
+  // estado real del servidor.
+  //
+  // Reintenta unas pocas veces antes de darse por vencido: un solo fallo
+  // (típico al abrir la app recién con datos móviles + VPN todavía
+  // reconectando) no debe tirar a toda la sesión al modo "solo este
+  // navegador" — eso era lo que hacía ver vacía la pestaña de Calendarios
+  // anteriores en el celular: no es que esa pestaña lea de otro lado, es
+  // que TODO el estado (incluido el historial de semanas) caía al estado
+  // por default (roster real, pero sin ninguna semana) apenas la primera
+  // consulta al servidor fallaba una vez, sin avisar.
   async function loadStateFromServer() {
-    try {
-      const res = await fetch('/api/state', { cache: 'no-store' });
-      if (!res.ok) throw new Error(`status ${res.status}`);
-      const data = await res.json();
-      return data ? normalizeState(data) : null;
-    } catch (e) {
-      return undefined;
+    const attempts = 3;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await fetchStateOnce();
+      } catch (e) {
+        if (i < attempts - 1) await sleep(600 * (i + 1));
+      }
     }
+    return undefined;
   }
 
   async function initState() {
@@ -116,13 +141,17 @@
 
   function updateConnStatus() {
     const el = document.getElementById('conn-status');
-    if (!el) return;
+    const banner = document.getElementById('offline-banner');
     if (usingServer) {
-      el.textContent = 'Compartido (servidor local)';
-      el.className = 'conn-status online';
+      if (el) { el.textContent = 'Compartido (servidor local)'; el.className = 'conn-status online'; }
+      if (banner) banner.hidden = true;
     } else {
-      el.textContent = 'Solo este navegador (sin servidor)';
-      el.className = 'conn-status offline';
+      if (el) { el.textContent = 'Solo este navegador (sin servidor)'; el.className = 'conn-status offline'; }
+      // El pill del header es chico y fácil de no ver, sobre todo en el
+      // celular — este aviso arriba de todo es la parte importante: sin
+      // esto, una pestaña vacía (ej. Calendarios anteriores) se puede leer
+      // como "no hay datos" en vez de "no se pudo conectar todavía".
+      if (banner) banner.hidden = false;
     }
   }
 
@@ -633,7 +662,10 @@
   }
 
   function renderGenerar() {
-    const el = document.getElementById('tab-generar');
+    // El botón de pantalla completa y el aviso de "girá el celular" viven
+    // fuera de este contenedor a propósito (en index.html, como estático),
+    // para no perderlos cada vez que se re-renderiza este tab.
+    const el = document.getElementById('generar-content');
     if (state.pendingProposal) {
       const proposal = state.pendingProposal;
       const audit = Core.auditWeek(state.students, historyForAudit(), proposal);
@@ -1679,6 +1711,39 @@
     });
   }
 
+  // Modo pantalla completa para Generar/edición, pensado para cuando hay
+  // que armar el calendario desde el celular (no reemplaza el uso normal
+  // en vertical, es un modo alternativo). Si el navegador no soporta la
+  // Fullscreen API el botón queda oculto en vez de mostrarse roto — no
+  // depende de HTTPS, así que anda igual detrás de Tailscale sin dominio.
+  function initFullscreenToggle() {
+    const btn = document.getElementById('fullscreen-toggle');
+    if (!btn || !document.documentElement.requestFullscreen) return;
+    btn.hidden = false;
+    btn.addEventListener('click', () => {
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+        return;
+      }
+      document.documentElement.requestFullscreen()
+        .then(() => {
+          // Mejor esfuerzo nomás: la mayoría de los navegadores solo
+          // permiten fijar la orientación estando en pantalla completa, y
+          // varios (Safari/iOS entre ellos) no lo soportan para nada —
+          // por eso el catch queda mudo, no es un error real.
+          if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape').catch(() => {});
+          }
+        })
+        .catch(() => showToast('No se pudo activar pantalla completa en este navegador.'));
+    });
+    document.addEventListener('fullscreenchange', () => {
+      const isFullscreen = !!document.fullscreenElement;
+      btn.textContent = isFullscreen ? '✕ Salir de pantalla completa' : '⛶ Pantalla completa';
+      document.body.classList.toggle('is-fullscreen', isFullscreen);
+    });
+  }
+
   function initGenerarEvents() {
     const el = document.getElementById('tab-generar');
     el.addEventListener('click', (e) => {
@@ -1797,10 +1862,18 @@
 
   document.addEventListener('DOMContentLoaded', async () => {
     initTabs();
+    initFullscreenToggle();
     initGenerarEvents();
     initEstudiantesEvents();
     initSemanasEvents();
+    const retryBtn = document.getElementById('offline-retry');
+    if (retryBtn) retryBtn.addEventListener('click', () => window.location.reload());
     await initState();
     renderAll();
+    // Recién acá se destapa la app — hasta este punto, "Sincronizando
+    // datos…" tapaba todo para que nunca se llegara a ver una pestaña
+    // vacía o vieja como si fuera el calendario real.
+    const overlay = document.getElementById('sync-overlay');
+    if (overlay) overlay.remove();
   });
 })();
