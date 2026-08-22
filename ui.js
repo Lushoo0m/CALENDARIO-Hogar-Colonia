@@ -12,6 +12,27 @@
   'use strict';
   const STORAGE_KEY = 'hogar-colonia-calendario-v1';
 
+  // Diagnóstico TEMPORAL y visible en pantalla del bug de sincronización en
+  // celular (se puede sacar una vez resuelto). Se arma acá arriba de todo
+  // para capturar errores lo antes posible, incluso si algo revienta antes
+  // de que initState() termine. Se muestra en la pestaña "Calendarios
+  // anteriores" vía syncDebugHtml().
+  const syncDebug = {
+    attempts: [], // [{ n, status }] uno por cada intento de GET /api/state
+    outcome: null,
+    lockedWeeksCount: null,
+    jsError: null,
+  };
+  window.addEventListener('error', (e) => {
+    if (syncDebug.jsError) return;
+    syncDebug.jsError = `${e.message || e} (${e.filename || '?'}:${e.lineno || '?'}:${e.colno || '?'})`;
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    if (syncDebug.jsError) return;
+    const reason = e.reason;
+    syncDebug.jsError = reason && reason.message ? reason.message : String(reason);
+  });
+
   let state = null;
   let usingServer = true;
   let editingStudentId = null;
@@ -71,8 +92,15 @@
   // Un solo intento de traer el estado — sin reintentos acá, eso lo maneja
   // loadStateFromServer. Puede fallar por cualquier motivo de red (VPN
   // reconectando, datos móviles con un pestañeo, servidor reiniciando).
-  async function fetchStateOnce() {
-    const res = await fetch('/api/state', { cache: 'no-store' });
+  async function fetchStateOnce(attemptNum) {
+    let res;
+    try {
+      res = await fetch('/api/state', { cache: 'no-store' });
+    } catch (networkErr) {
+      syncDebug.attempts.push({ n: attemptNum, status: `sin respuesta (${(networkErr && networkErr.message) || networkErr})` });
+      throw networkErr;
+    }
+    syncDebug.attempts.push({ n: attemptNum, status: res.status });
     if (!res.ok) throw new Error(`status ${res.status}`);
     const data = await res.json();
     return data ? normalizeState(data) : null;
@@ -94,7 +122,7 @@
     const attempts = 3;
     for (let i = 0; i < attempts; i++) {
       try {
-        return await fetchStateOnce();
+        return await fetchStateOnce(i + 1);
       } catch (e) {
         if (i < attempts - 1) await sleep(600 * (i + 1));
       }
@@ -107,10 +135,13 @@
     if (fromServer === undefined) {
       usingServer = false;
       state = loadStateFromLocalStorage() || defaultState();
+      syncDebug.outcome = 'sin servidor tras reintentar — usando copia local del navegador';
     } else {
       usingServer = true;
       state = fromServer || defaultState();
+      syncDebug.outcome = fromServer ? 'servidor respondió OK' : 'servidor respondió OK pero todavía no hay nada guardado';
     }
+    syncDebug.lockedWeeksCount = (state.lockedWeeks || []).length;
     updateConnStatus();
   }
 
@@ -172,6 +203,42 @@
     t.hidden = false;
     clearTimeout(showToast._t);
     showToast._t = setTimeout(() => { t.hidden = true; }, 2600);
+  }
+
+  // Reemplaza a confirm() nativo: los diálogos nativos (confirm/alert) del
+  // navegador fuerzan la salida automática de pantalla completa apenas
+  // aparecen — este modal es HTML común dentro de la propia página, así
+  // que no dispara ese comportamiento. Misma forma de uso: se espera el
+  // resultado (true = Aceptar, false = Cancelar/cerrar).
+  function showConfirmModal(message) {
+    return new Promise((resolve) => {
+      const overlay = document.getElementById('confirm-modal');
+      const msgEl = document.getElementById('confirm-modal-message');
+      const acceptBtn = document.getElementById('confirm-modal-accept');
+      const cancelBtn = document.getElementById('confirm-modal-cancel');
+      if (!overlay || !msgEl || !acceptBtn || !cancelBtn) {
+        // Red de seguridad: si por algún motivo el modal no está en el DOM,
+        // que no se rompa el flujo (aunque se pierda el detalle de no
+        // cortar la pantalla completa).
+        resolve(window.confirm(message));
+        return;
+      }
+      msgEl.textContent = message;
+      overlay.hidden = false;
+      const cleanup = (result) => {
+        overlay.hidden = true;
+        acceptBtn.removeEventListener('click', onAccept);
+        cancelBtn.removeEventListener('click', onCancel);
+        overlay.removeEventListener('click', onOverlayClick);
+        resolve(result);
+      };
+      const onAccept = () => cleanup(true);
+      const onCancel = () => cleanup(false);
+      const onOverlayClick = (e) => { if (e.target === overlay) cleanup(false); };
+      acceptBtn.addEventListener('click', onAccept);
+      cancelBtn.addEventListener('click', onCancel);
+      overlay.addEventListener('click', onOverlayClick);
+    });
   }
 
   function slugify(name) {
@@ -823,19 +890,19 @@
     return true;
   }
 
-  function handleDiscardClick() {
-    if (!confirm('¿Descartar esta propuesta? No se guarda nada.')) return;
+  async function handleDiscardClick() {
+    if (!(await showConfirmModal('¿Descartar esta propuesta? No se guarda nada.'))) return;
     state.pendingProposal = null;
     saveState();
     renderGenerar();
   }
 
-  function handleApproveClick() {
+  async function handleApproveClick() {
     const proposal = state.pendingProposal;
     if (!proposal) return;
     const audit = Core.auditWeek(state.students, state.lockedWeeks, proposal);
     if (audit.warnings.length) {
-      const ok = confirm(`Hay ${audit.warnings.length} alerta(s) activa(s) para esta semana. ¿Confirmás bloquearla de todas formas?`);
+      const ok = await showConfirmModal(`Hay ${audit.warnings.length} alerta(s) activa(s) para esta semana. ¿Confirmás bloquearla de todas formas?`);
       if (!ok) return;
     }
     state.lockedWeeks.push({
@@ -881,10 +948,10 @@
   // el último cerrado (a diferencia de la vieja "Corrección" en Generar).
   // Pide confirmación antes de entrar, como freno para que no sea un click
   // accidental sobre un registro ya cerrado.
-  function handleRequestMonthEdit(monthKey) {
+  async function handleRequestMonthEdit(monthKey) {
     const [y, m] = monthKey.split('-').map(Number);
     const monthLabel = `${Core.MONTH_NAMES_ES[m - 1]} ${y}`;
-    const ok = confirm(`¿Estás seguro que querés editar el calendario de ${monthLabel}? Ya está cerrado — confirmá solo si estás seguro, no es para un click accidental.`);
+    const ok = await showConfirmModal(`¿Estás seguro que querés editar el calendario de ${monthLabel}? Ya está cerrado — confirmá solo si estás seguro, no es para un click accidental.`);
     if (!ok) return;
     handleStartMonthEdit(monthKey);
   }
@@ -1208,7 +1275,7 @@
   function handleImportBackupFile(file) {
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       let parsed;
       try {
         parsed = JSON.parse(reader.result);
@@ -1216,7 +1283,7 @@
         showToast('El archivo no es una copia válida (JSON inválido).');
         return;
       }
-      const ok = confirm('¿Importar esta copia? Va a REEMPLAZAR toda la información actual (estudiantes, calendarios, meses cerrados) acá y en el servidor compartido. Esta acción no se puede deshacer.');
+      const ok = await showConfirmModal('¿Importar esta copia? Va a REEMPLAZAR toda la información actual (estudiantes, calendarios, meses cerrados) acá y en el servidor compartido. Esta acción no se puede deshacer.');
       if (!ok) return;
       state = normalizeState(parsed);
       editingStudentId = null;
@@ -1275,10 +1342,10 @@
     renderGenerar();
     showToast(proposalRefreshed ? 'Estudiante actualizado y propuesta pendiente recalculada.' : 'Estudiante actualizado.');
   }
-  function handleDeleteStudent(id) {
+  async function handleDeleteStudent(id) {
     const student = state.students.find((s) => s.id === id);
     if (!student) return;
-    if (!confirm(`¿Quitar la beca a ${student.name}? Esta acción no se puede deshacer. Su historial en semanas ya bloqueadas se conserva, pero dejará de aparecer en el calendario.`)) return;
+    if (!(await showConfirmModal(`¿Quitar la beca a ${student.name}? Esta acción no se puede deshacer. Su historial en semanas ya bloqueadas se conserva, pero dejará de aparecer en el calendario.`))) return;
     state.students = state.students.filter((s) => s.id !== id);
     if (editingStudentId === id) editingStudentId = null;
     const proposalRefreshed = syncPendingProposalAfterStudentChange();
@@ -1309,12 +1376,28 @@
     return state.lockedWeeks.filter((w) => w.year === y && w.month === m).sort((a, b) => (a.startDate < b.startDate ? -1 : 1));
   }
 
+  // Diagnóstico TEMPORAL y visible del bug de sincronización en celular —
+  // se puede sacar (junto con syncDebug arriba) una vez resuelto.
+  function syncDebugHtml() {
+    const attemptsText = syncDebug.attempts.length
+      ? syncDebug.attempts.map((a) => `#${a.n}: ${a.status}`).join(' · ')
+      : 'ninguno todavía';
+    return `<div class="sync-debug">
+      <strong>Diagnóstico temporal de sincronización</strong><br>
+      ¿Se hizo GET /api/state?: ${syncDebug.attempts.length ? 'sí' : 'no'}<br>
+      Resultado de cada intento: ${escapeHtml(attemptsText)}<br>
+      Resultado final: ${escapeHtml(syncDebug.outcome || '(todavía no terminó)')}<br>
+      Calendarios anteriores (semanas) recibidos: ${syncDebug.lockedWeeksCount == null ? '?' : syncDebug.lockedWeeksCount}<br>
+      Excepción de JavaScript: ${syncDebug.jsError ? escapeHtml(syncDebug.jsError) : 'ninguna'}
+    </div>`;
+  }
+
   function renderSemanas() {
     const el = document.getElementById('tab-semanas');
     const studentsById = Object.fromEntries(state.students.map((s) => [s.id, s]));
 
     if (!state.lockedWeeks.length) {
-      el.innerHTML = '<div class="empty-state">Todavía no hay calendarios anteriores.</div>';
+      el.innerHTML = syncDebugHtml() + '<div class="empty-state">Todavía no hay calendarios anteriores.</div>';
       return;
     }
 
@@ -1324,7 +1407,7 @@
       .sort().reverse();
 
     if (!completeMonths.length) {
-      el.innerHTML = '<div class="empty-state">Todavía no hay ningún mes completo — los calendarios en curso se ven en la pestaña Generar. Un mes aparece acá recién cuando está bloqueado hasta el último día.</div>';
+      el.innerHTML = syncDebugHtml() + '<div class="empty-state">Todavía no hay ningún mes completo — los calendarios en curso se ven en la pestaña Generar. Un mes aparece acá recién cuando está bloqueado hasta el último día.</div>';
       return;
     }
 
@@ -1384,7 +1467,7 @@
       </div>`;
     }).join('');
 
-    el.innerHTML = monthCards;
+    el.innerHTML = syncDebugHtml() + monthCards;
   }
 
   function handleToggleMonth(key) {
@@ -1392,14 +1475,14 @@
     renderSemanas();
   }
 
-  function handleUnlockWeek(startDate) {
+  async function handleUnlockWeek(startDate) {
     const week = state.lockedWeeks.find((w) => w.startDate === startDate);
     if (!week) return;
     const latest = [...state.lockedWeeks].sort((a, b) => (a.endDate < b.endDate ? 1 : -1))[0];
     const message = latest.startDate === startDate
       ? '¿Desbloquear esta semana? Vuelve a quedar pendiente en la pestaña Generar y la podés proponer de nuevo.'
       : '¿Desbloquear esta semana? OJO: no es la última semana bloqueada — las semanas posteriores ya aprobadas no se recalculan solas y van a seguir basadas en el historial que tenían. Revisalas manualmente si hace falta.';
-    if (!confirm(message)) return;
+    if (!(await showConfirmModal(message))) return;
     state.lockedWeeks = state.lockedWeeks.filter((w) => w.startDate !== startDate);
     if (editingWeekStart === startDate) { editingWeekStart = null; editingWeekDraft = null; }
     saveState();

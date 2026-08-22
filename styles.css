@@ -499,6 +499,34 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
   z-index: 50;
 }
 
+/* Modal propio en vez de confirm() nativo — el nativo fuerza salir de
+   pantalla completa apenas aparece, este no (es HTML común, no un diálogo
+   del sistema operativo/navegador). */
+.confirm-modal-overlay {
+  position: fixed; inset: 0; z-index: 700;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.confirm-modal-overlay[hidden] { display: none; }
+.confirm-modal {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 20px; max-width: 420px; width: 100%;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+.confirm-modal p {
+  margin: 0 0 18px; color: var(--text); font-size: 0.92rem; line-height: 1.5; white-space: pre-wrap;
+}
+.confirm-modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+/* Diagnóstico temporal de sincronización (Calendarios anteriores) — texto
+   chico, discreto, pero visible; se puede sacar una vez resuelto el bug. */
+.sync-debug {
+  font-size: 0.72rem; color: var(--muted); background: var(--panel-2);
+  border: 1px dashed var(--border); border-radius: 8px;
+  padding: 8px 12px; margin-bottom: 12px; line-height: 1.6;
+}
+
 /* Exportar a PDF: se arma en #print-area y se imprime con window.print().
    En pantalla queda oculto; en impresión, es lo ÚNICO visible. Usa el MISMO
    diseño oscuro y los mismos colores por día que la pestaña Generar, para

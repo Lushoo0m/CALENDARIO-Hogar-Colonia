@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Calendario de Limpieza · Hogar Colonia</title>
   <link rel="stylesheet" href="styles.css" />
+  <!-- Defensa extra contra caché vieja de index.html/ui.js/core.js pegada en
+       el celular: server.js ya manda estos mismos headers, pero si algún
+       proxy intermedio (VPN, reverse proxy) los pisara en el camino, esta
+       etiqueta es la última línea de defensa para el documento en sí. -->
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
 
   <!-- App instalable en el celular (PWA): ícono + "Agregar a pantalla de inicio". -->
   <link rel="manifest" href="manifest.json" />
@@ -57,6 +63,19 @@
 
   <div id="toast" class="toast" hidden></div>
   <div id="print-area"></div>
+
+  <!-- Reemplaza a confirm() nativo: los diálogos nativos del navegador
+       (confirm/alert) fuerzan la salida automática de pantalla completa —
+       este modal propio no. -->
+  <div id="confirm-modal" class="confirm-modal-overlay" hidden>
+    <div class="confirm-modal" role="alertdialog" aria-modal="true">
+      <p id="confirm-modal-message"></p>
+      <div class="confirm-modal-actions">
+        <button type="button" id="confirm-modal-cancel" class="btn secondary">Cancelar</button>
+        <button type="button" id="confirm-modal-accept" class="btn">Aceptar</button>
+      </div>
+    </div>
+  </div>
 
   <script src="core.js"></script>
   <script src="ui.js"></script>
