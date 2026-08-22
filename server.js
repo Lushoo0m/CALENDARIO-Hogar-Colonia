@@ -50,7 +50,7 @@ if (DATA_DIR !== __dirname) fs.mkdirSync(DATA_DIR, { recursive: true });
 const DATA_FILE = path.join(DATA_DIR, 'data.json');
 const ACCESS_CODE_FILE = path.join(DATA_DIR, 'access-code.txt');
 const GUEST_CODE_FILE = path.join(DATA_DIR, 'guest-code.txt');
-const PUBLIC_FILES = new Set(['/index.html', '/styles.css', '/core.js', '/ui.js', '/manifest.json', '/sw.js', '/icon-192.png', '/icon-512.png']);
+const PUBLIC_FILES = new Set(['/index.html', '/styles.css', '/core.js', '/ui.js', '/manifest.json', '/sw.js', '/icon-192.png', '/icon-512.png', '/icon-maskable-192.png', '/icon-maskable-512.png', '/apple-touch-icon.png']);
 const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript', '.json': 'application/json', '.png': 'image/png' };
 
 // Código largo y aleatorio (no 4 dígitos) — sobre todo importa si el
