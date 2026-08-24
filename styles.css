@@ -468,18 +468,19 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
 .week-card { margin-bottom: 22px; }
 .week-card-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; flex-wrap: wrap; gap: 6px; }
 
-.month-card { padding: 0; overflow: hidden; }
-.month-toggle {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  width: 100%; padding: 16px 18px; background: none; border: none; cursor: pointer;
-  text-align: left; color: var(--text); font: inherit;
+/* Calendarios anteriores: todos los meses en una fila de botones; el que
+   está seleccionado muestra su contenido debajo (grilla + PDF/Imagen/Editar). */
+.month-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.month-tab-btn {
+  padding: 8px 16px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--panel); color: var(--text); font: inherit; font-size: 0.85rem;
+  cursor: pointer; transition: background 0.12s, border-color 0.12s;
 }
-.month-toggle:hover { background: var(--panel-2); }
-.month-toggle-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.month-toggle-title h3 { margin: 0; }
-.month-toggle-chevron { color: var(--muted); transition: transform 0.15s; flex-shrink: 0; }
-.month-card.open .month-toggle-chevron { transform: rotate(180deg); }
-.month-card-body { padding: 0 18px 18px; }
+.month-tab-btn:hover { background: var(--panel-2); }
+.month-tab-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.month-tab-hint { text-align: center; padding: 20px 10px; }
+.month-tab-content-header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.month-tab-content-header h3 { margin: 0; }
 .icon-download { vertical-align: -2px; margin-right: 4px; }
 
 .empty-state { text-align: center; color: var(--muted); padding: 30px 10px; }
@@ -522,14 +523,6 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
   margin: 0 0 18px; color: var(--text); font-size: 0.92rem; line-height: 1.5; white-space: pre-wrap;
 }
 .confirm-modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
-
-/* Diagnóstico temporal de sincronización (Calendarios anteriores) — texto
-   chico, discreto, pero visible; se puede sacar una vez resuelto el bug. */
-.sync-debug {
-  font-size: 0.72rem; color: var(--muted); background: var(--panel-2);
-  border: 1px dashed var(--border); border-radius: 8px;
-  padding: 8px 12px; margin-bottom: 12px; line-height: 1.6;
-}
 
 /* Exportar a PDF: se arma en #print-area y se imprime con window.print().
    En pantalla queda oculto; en impresión, es lo ÚNICO visible. Usa el MISMO

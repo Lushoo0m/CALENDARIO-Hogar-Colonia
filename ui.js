@@ -12,27 +12,6 @@
   'use strict';
   const STORAGE_KEY = 'hogar-colonia-calendario-v1';
 
-  // Diagnóstico TEMPORAL y visible en pantalla del bug de sincronización en
-  // celular (se puede sacar una vez resuelto). Se arma acá arriba de todo
-  // para capturar errores lo antes posible, incluso si algo revienta antes
-  // de que initState() termine. Se muestra en la pestaña "Calendarios
-  // anteriores" vía syncDebugHtml().
-  const syncDebug = {
-    attempts: [], // [{ n, status }] uno por cada intento de GET /api/state
-    outcome: null,
-    lockedWeeksCount: null,
-    jsError: null,
-  };
-  window.addEventListener('error', (e) => {
-    if (syncDebug.jsError) return;
-    syncDebug.jsError = `${e.message || e} (${e.filename || '?'}:${e.lineno || '?'}:${e.colno || '?'})`;
-  });
-  window.addEventListener('unhandledrejection', (e) => {
-    if (syncDebug.jsError) return;
-    const reason = e.reason;
-    syncDebug.jsError = reason && reason.message ? reason.message : String(reason);
-  });
-
   let state = null;
   let usingServer = true;
   let editingStudentId = null;
@@ -92,15 +71,8 @@
   // Un solo intento de traer el estado — sin reintentos acá, eso lo maneja
   // loadStateFromServer. Puede fallar por cualquier motivo de red (VPN
   // reconectando, datos móviles con un pestañeo, servidor reiniciando).
-  async function fetchStateOnce(attemptNum) {
-    let res;
-    try {
-      res = await fetch('/api/state', { cache: 'no-store' });
-    } catch (networkErr) {
-      syncDebug.attempts.push({ n: attemptNum, status: `sin respuesta (${(networkErr && networkErr.message) || networkErr})` });
-      throw networkErr;
-    }
-    syncDebug.attempts.push({ n: attemptNum, status: res.status });
+  async function fetchStateOnce() {
+    const res = await fetch('/api/state', { cache: 'no-store' });
     if (!res.ok) throw new Error(`status ${res.status}`);
     const data = await res.json();
     return data ? normalizeState(data) : null;
@@ -122,7 +94,7 @@
     const attempts = 3;
     for (let i = 0; i < attempts; i++) {
       try {
-        return await fetchStateOnce(i + 1);
+        return await fetchStateOnce();
       } catch (e) {
         if (i < attempts - 1) await sleep(600 * (i + 1));
       }
@@ -135,13 +107,10 @@
     if (fromServer === undefined) {
       usingServer = false;
       state = loadStateFromLocalStorage() || defaultState();
-      syncDebug.outcome = 'sin servidor tras reintentar — usando copia local del navegador';
     } else {
       usingServer = true;
       state = fromServer || defaultState();
-      syncDebug.outcome = fromServer ? 'servidor respondió OK' : 'servidor respondió OK pero todavía no hay nada guardado';
     }
-    syncDebug.lockedWeeksCount = (state.lockedWeeks || []).length;
     updateConnStatus();
   }
 
@@ -1383,65 +1352,57 @@
   }
 
   // Diagnóstico TEMPORAL y visible del bug de sincronización en celular —
-  // se puede sacar (junto con syncDebug arriba) una vez resuelto.
-  function syncDebugHtml() {
-    const attemptsText = syncDebug.attempts.length
-      ? syncDebug.attempts.map((a) => `#${a.n}: ${a.status}`).join(' · ')
-      : 'ninguno todavía';
-    return `<div class="sync-debug">
-      <strong>Diagnóstico temporal de sincronización</strong><br>
-      ¿Se hizo GET /api/state?: ${syncDebug.attempts.length ? 'sí' : 'no'}<br>
-      Resultado de cada intento: ${escapeHtml(attemptsText)}<br>
-      Resultado final: ${escapeHtml(syncDebug.outcome || '(todavía no terminó)')}<br>
-      Calendarios anteriores (semanas) recibidos: ${syncDebug.lockedWeeksCount == null ? '?' : syncDebug.lockedWeeksCount}<br>
-      Excepción de JavaScript: ${syncDebug.jsError ? escapeHtml(syncDebug.jsError) : 'ninguna'}
-    </div>`;
-  }
-
   function renderSemanas() {
     const el = document.getElementById('tab-semanas');
     const studentsById = Object.fromEntries(state.students.map((s) => [s.id, s]));
 
     if (!state.lockedWeeks.length) {
-      el.innerHTML = syncDebugHtml() + '<div class="empty-state">Todavía no hay calendarios anteriores.</div>';
+      el.innerHTML = '<div class="empty-state">Todavía no hay calendarios anteriores.</div>';
       return;
     }
 
+    // Solo meses COMPLETOS (bloqueados hasta el último día) entran acá. Un
+    // mes abierto para corrección (botón "Editar") sigue con sus semanas
+    // bloqueadas mientras se edita, así que sigue siendo "completo" y sigue
+    // apareciendo acá — no se mueve a Generar ni desaparece.
     const monthKeys = [...new Set(state.lockedWeeks.map((w) => `${w.year}-${Core.pad2(w.month)}`))];
     const completeMonths = monthKeys
       .filter((key) => { const [y, m] = key.split('-').map(Number); return isMonthComplete(state.lockedWeeks, y, m); })
       .sort().reverse();
 
     if (!completeMonths.length) {
-      el.innerHTML = syncDebugHtml() + '<div class="empty-state">Todavía no hay ningún mes completo — los calendarios en curso se ven en la pestaña Generar. Un mes aparece acá recién cuando está bloqueado hasta el último día.</div>';
+      el.innerHTML = '<div class="empty-state">Todavía no hay ningún mes completo — los calendarios en curso se ven en la pestaña Generar. Un mes aparece acá recién cuando está bloqueado hasta el último día.</div>';
       return;
     }
 
-    const monthCards = completeMonths.map((key) => {
+    // Todos los meses en una fila de botones; el que está abierto muestra su
+    // contenido (grilla + PDF/Imagen/Editar) debajo de la fila.
+    const tabsHtml = `<div class="month-tabs">${completeMonths.map((key) => {
+      const [, m] = key.split('-').map(Number);
+      const y = Number(key.split('-')[0]);
+      const label = `${Core.MONTH_NAMES_ES[m - 1]} ${y}`;
+      const isOpen = expandedMonthKey === key;
+      return `<button type="button" class="month-tab-btn ${isOpen ? 'active' : ''}" data-action="toggle-month" data-month-key="${key}" aria-expanded="${isOpen}">${escapeHtml(label)}</button>`;
+    }).join('')}</div>`;
+
+    let contentHtml = '<p class="muted month-tab-hint">Tocá un mes para ver el detalle.</p>';
+    if (expandedMonthKey && completeMonths.includes(expandedMonthKey)) {
+      const key = expandedMonthKey;
       const [, m] = key.split('-').map(Number);
       const weeksOfMonth = weeksOfMonthKey(key);
       const y = weeksOfMonth[0].year;
       const label = `${Core.MONTH_NAMES_ES[m - 1]} ${y}`;
       const dateRange = `${Core.formatDateEs(Core.fromISO(weeksOfMonth[0].startDate))} – ${Core.formatDateEs(Core.fromISO(weeksOfMonth[weeksOfMonth.length - 1].endDate))}`;
-      const isOpen = expandedMonthKey === key;
       const editingThisMonth = editingMonthKey === key;
 
-      const buildEditBodyHtml = () => {
-        const auditHtml = renderWeekChipsLog(auditMonthDraftByWeek(editingMonthDraft), `audit|month|${key}`, studentsById);
-        return `
-        <div class="month-card-body">
-          ${auditHtml}
+      const innerHtml = editingThisMonth ? `
+          ${renderWeekChipsLog(auditMonthDraftByWeek(editingMonthDraft), `audit|month|${key}`, studentsById)}
           ${renderEditableMonthGridTable(editingMonthDraft, studentsById, `grid|${key}`)}
           <div class="btn-row">
             <button class="btn" data-action="save-month-edit">Guardar corrección</button>
             <button class="btn secondary" data-action="regenerate-month">Regenerar mes automáticamente</button>
             <button class="btn secondary" data-action="cancel-month-edit">Cancelar</button>
-          </div>
-        </div>`;
-      };
-
-      const viewBodyHtml = `
-        <div class="month-card-body">
+          </div>` : `
           ${renderMonthGridTable(weeksOfMonth, studentsById, `grid|${key}`)}
           <div class="btn-row">
             <button class="btn small secondary" data-action="print-month" data-month-key="${key}">
@@ -1456,24 +1417,19 @@
               <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" style="vertical-align:-1px;margin-right:4px;"><path fill="currentColor" d="M12.146.854a.5.5 0 0 1 .708 0l2.292 2.292a.5.5 0 0 1 0 .708L4.708 14.292a.5.5 0 0 1-.233.131l-3.5 1a.5.5 0 0 1-.618-.618l1-3.5a.5.5 0 0 1 .131-.233L12.146.854zM11.207 2.5 13.5 4.793l1.146-1.147L12.354 1.354 11.207 2.5zM2.5 11.707l7-7L11.793 6l-7 7-1.5.429.207-1.722z"/></svg>
               Editar
             </button>
-          </div>
-        </div>`;
+          </div>`;
 
-      const bodyHtml = isOpen ? (editingThisMonth ? buildEditBodyHtml() : viewBodyHtml) : '';
-
-      return `<div class="week-card card month-card ${isOpen ? 'open' : ''}">
-        <button type="button" class="month-toggle" data-action="toggle-month" data-month-key="${key}" aria-expanded="${isOpen}">
-          <span class="month-toggle-title">
+      contentHtml = `
+        <div class="card month-tab-content">
+          <div class="month-tab-content-header">
             <h3>${escapeHtml(label)}</h3>
             <span class="muted">${dateRange}</span>
-          </span>
-          <span class="month-toggle-chevron" aria-hidden="true">▾</span>
-        </button>
-        ${bodyHtml}
-      </div>`;
-    }).join('');
+          </div>
+          ${innerHtml}
+        </div>`;
+    }
 
-    el.innerHTML = syncDebugHtml() + monthCards;
+    el.innerHTML = tabsHtml + contentHtml;
   }
 
   function handleToggleMonth(key) {
