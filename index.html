@@ -42,6 +42,12 @@
       </nav>
     </header>
 
+    <!-- Fuera de cualquier .tab-panel a propósito: así se ve en las 3
+         pestañas, no solo en Generar. -->
+    <div class="global-toolbar">
+      <button type="button" id="fullscreen-toggle" class="btn small secondary" hidden>⛶ Pantalla completa</button>
+    </div>
+
     <div id="offline-banner" class="offline-banner" hidden>
       ⚠ No se pudo conectar con el servidor compartido: estás viendo una copia
       local de este navegador, que puede estar vacía o desactualizada.
@@ -50,9 +56,6 @@
 
     <main class="app-main">
       <section id="tab-generar" class="tab-panel active">
-        <div class="generar-toolbar">
-          <button type="button" id="fullscreen-toggle" class="btn small secondary" hidden>⛶ Pantalla completa</button>
-        </div>
         <p class="landscape-hint muted">💡 Para más espacio, girá el celular a horizontal.</p>
         <div id="generar-content"><p class="muted">Cargando…</p></div>
       </section>
