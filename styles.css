@@ -410,25 +410,26 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
 .student-name { font-weight: 600; }
 .student-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
-/* Etiqueta de cooperación (mira/aplausos/balanza): apagada por defecto,
-   la que está marcada se ve a color para identificarla de un vistazo. */
-.coop-tags { display: flex; gap: 1px; }
-.coop-tag {
-  background: none; border: none; padding: 2px 3px; cursor: pointer;
-  font-size: 0.95rem; line-height: 1;
-  filter: grayscale(1); opacity: 0.32;
-  transition: opacity 0.12s, filter 0.12s, transform 0.12s;
+/* Sistema de comportamiento: 2 botones para sumar votos + / - (carga
+   independiente de la limpieza). El ícono de cooperación (mira/aplausos/
+   balanza) ya no se elige a mano — se calcula solo a partir de esos votos
+   (Core.computeCoopTag) y se muestra como una insignia de solo lectura. */
+.behavior-buttons { display: flex; gap: 4px; }
+.behavior-btn {
+  width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--panel-2); cursor: pointer; font-size: 1rem; font-weight: 700;
+  line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+  transition: transform 0.1s, background 0.12s;
 }
-.coop-tag:hover { opacity: 0.7; transform: scale(1.15); }
-.coop-tag.active { filter: none; opacity: 1; }
+.behavior-btn:active { transform: scale(0.92); }
+.behavior-btn.positive { color: #7cd68a; }
+.behavior-btn.positive:hover { background: var(--ok-bg); border-color: #2c4534; }
+.behavior-btn.negative { color: #ee8a96; }
+.behavior-btn.negative:hover { background: var(--danger-bg); border-color: #4a2830; }
+
+.coop-badge { font-size: 0.95rem; line-height: 1; }
 
 .badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 0.7rem; border: 1px solid var(--border); color: var(--muted); }
-
-.tier-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.7rem; font-weight: 600; border: 1px solid var(--border); }
-.tier-badge.tier-high { color: #edb7bf; border-color: #4a2830; background: var(--danger-bg); }
-.tier-badge.tier-mid { color: #e8caa0; border-color: #4a3d20; background: var(--warning-bg); }
-.tier-badge.tier-low { color: #b3d9bc; border-color: #2c4534; background: var(--ok-bg); }
-.tier-badge.inactive { color: var(--muted); }
 
 /* Detalle desplegable de un estudiante (click en el nombre) */
 .student-detail { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
@@ -444,6 +445,9 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
 .points-badge.tier-high { color: #b3d9bc; border-color: #2c4534; background: var(--ok-bg); }
 .points-badge.tier-mid { color: #e8caa0; border-color: #4a3d20; background: var(--warning-bg); }
 .points-badge.tier-low { color: #edb7bf; border-color: #4a2830; background: var(--danger-bg); }
+.points-badge.coop-cooperative { color: #b3d9bc; border-color: #2c4534; background: var(--ok-bg); }
+.points-badge.coop-neutral { color: var(--muted); }
+.points-badge.coop-noncooperative { color: #edb7bf; border-color: #4a2830; background: var(--danger-bg); }
 
 /* Switch deslizable de bloqueo/desbloqueo (semana anterior en Generar) */
 .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }

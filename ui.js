@@ -1106,6 +1106,8 @@
   // Tab: Estudiantes
   // -----------------------------------------------------------------
   const TIER_LABELS = { high: 'Carga alta', mid: 'Carga media', low: 'Carga baja' };
+  const COOP_ICONS = { noncooperative: '🎯', cooperative: '👏', neutral: '⚖️' };
+  const COOP_TITLES = { noncooperative: 'No colabora', cooperative: 'Cooperativo/a', neutral: 'Neutral (balanza de equilibrio)' };
   function kitchenGroupLabel(s) { return s.kitchenGroup === 'k2' ? 'COCINA II' : 'COCINA'; }
   function sexSymbol(sex) { return sex === 'M' ? '♂' : sex === 'F' ? '♀' : ''; }
 
@@ -1131,9 +1133,14 @@
       const editing = editingStudentId === s.id;
       const expanded = expandedStudentId === s.id;
       const tier = tierOf[s.id];
-      const tierBadge = !s.active
-        ? '<span class="tier-badge inactive">Inactivo</span>'
-        : tier ? `<span class="tier-badge tier-${tier}">${TIER_LABELS[tier]}</span>` : '';
+      const behaviorPositive = s.behaviorPositive || 0;
+      const behaviorNegative = s.behaviorNegative || 0;
+      const coopTag = Core.computeCoopTag(behaviorPositive, behaviorNegative);
+      const behaviorButtonsHtml = `
+        <div class="behavior-buttons">
+          <button type="button" class="behavior-btn negative" data-action="behavior-vote" data-id="${s.id}" data-delta="negative" title="Comportamiento negativo">−</button>
+          <button type="button" class="behavior-btn positive" data-action="behavior-vote" data-id="${s.id}" data-delta="positive" title="Comportamiento positivo">+</button>
+        </div>`;
 
       if (editing) {
         const mainHtml = `
@@ -1163,7 +1170,8 @@
             <div class="detail-tags">
               <span class="day-pill dow-${s.fixedDay}">${Core.DOW_NAMES_ES[s.fixedDay - 1]}</span>
               <span class="kitchen-tag">${kitchenGroupLabel(s)}</span>
-              <span class="points-badge tier-${tier || 'low'}">${points} pts</span>
+              <span class="points-badge tier-${tier || 'low'}">${points} pts (carga)</span>
+              <span class="points-badge coop-${coopTag}">${COOP_ICONS[coopTag]} +${behaviorPositive} / −${behaviorNegative}</span>
             </div>
           </div>
         ` : '';
@@ -1171,20 +1179,16 @@
           <button class="btn small secondary" data-action="rename" data-id="${s.id}">Editar</button>
           <button class="btn small danger" data-action="delete" data-id="${s.id}">Quitar beca</button>
         `;
-      const coopTagsHtml = `
-        <div class="coop-tags">
-          <button type="button" class="coop-tag ${s.coopTag === 'noncooperative' ? 'active' : ''}" data-action="set-coop-tag" data-id="${s.id}" data-tag="noncooperative" title="No colabora">🎯</button>
-          <button type="button" class="coop-tag ${s.coopTag === 'cooperative' ? 'active' : ''}" data-action="set-coop-tag" data-id="${s.id}" data-tag="cooperative" title="Cooperativo/a">👏</button>
-          <button type="button" class="coop-tag ${s.coopTag === 'neutral' ? 'active' : ''}" data-action="set-coop-tag" data-id="${s.id}" data-tag="neutral" title="Neutral">⚖️</button>
-        </div>`;
+      const coopBadgeHtml = `<span class="coop-badge coop-${coopTag}" title="${COOP_TITLES[coopTag]}">${COOP_ICONS[coopTag]}</span>`;
 
       return `<div class="student-row ${s.active ? '' : 'inactive'}" data-id="${s.id}">
         <div class="student-main">
           <div class="student-name-row">
             <button class="student-name-toggle" data-action="toggle-detail" data-id="${s.id}">
-              <span class="student-name">${escapeHtml(s.name)}</span>${tierBadge}
+              <span class="student-name">${escapeHtml(s.name)}</span>
             </button>
-            ${coopTagsHtml}
+            ${behaviorButtonsHtml}
+            ${coopBadgeHtml}
           </div>
           ${detailHtml}
         </div>
@@ -1302,14 +1306,16 @@
 
   function handleToggleDetail(id) { expandedStudentId = expandedStudentId === id ? null : id; renderEstudiantes(); }
 
-  // Etiqueta manual de cooperación (mira/aplausos/balanza) — solo para que
-  // el supervisor identifique de un vistazo quién colabora, quién no y
-  // quién es neutral. No afecta el algoritmo de rotación ni los puntos.
-  // Tocar la misma etiqueta activa la desmarca.
-  function handleSetCoopTag(id, tag) {
+  // Sistema de comportamiento (independiente de la carga de limpieza): cada
+  // toque en + o - suma un voto acumulado. El ícono de cooperación
+  // (mira/aplausos/balanza) se recalcula solo a partir de esos votos con
+  // Core.computeCoopTag — nunca se elige a mano. No afecta el algoritmo de
+  // rotación ni los puntos de carga de limpieza.
+  function handleBehaviorVote(id, kind) {
     const student = state.students.find((s) => s.id === id);
     if (!student) return;
-    student.coopTag = student.coopTag === tag ? null : tag;
+    if (kind === 'positive') student.behaviorPositive = (student.behaviorPositive || 0) + 1;
+    else if (kind === 'negative') student.behaviorNegative = (student.behaviorNegative || 0) + 1;
     saveState();
     renderEstudiantes();
   }
@@ -1900,7 +1906,7 @@
       else if (action === 'save-rename') handleRenameSave(id);
       else if (action === 'cancel-rename') handleRenameCancel();
       else if (action === 'delete') handleDeleteStudent(id);
-      else if (action === 'set-coop-tag') handleSetCoopTag(id, btn.dataset.tag);
+      else if (action === 'behavior-vote') handleBehaviorVote(id, btn.dataset.delta);
       else if (action === 'export-backup') handleExportBackup();
       else if (action === 'import-backup') handleImportBackupClick();
     });

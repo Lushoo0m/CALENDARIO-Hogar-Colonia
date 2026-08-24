@@ -433,6 +433,16 @@ check('cobertura de becados respeta el corte de mes: septiembre 2026 termina mi�
   assert.ok(covOct.missing.some((m) => m.id === 'jue'), 'el de jueves debería figurar como faltante recién en la semana 1 de octubre, que es donde realmente le toca');
 });
 
+check('computeCoopTag: umbral de ±15 define cooperativo/no colabora/neutral', () => {
+  assert.strictEqual(Core.computeCoopTag(0, 0), 'neutral');
+  assert.strictEqual(Core.computeCoopTag(15, 0), 'neutral', 'diferencia exactamente en el umbral sigue siendo neutral');
+  assert.strictEqual(Core.computeCoopTag(16, 0), 'cooperative', 'un punto pasado el umbral ya es cooperativo');
+  assert.strictEqual(Core.computeCoopTag(0, 15), 'neutral', 'diferencia exactamente en el umbral (negativa) sigue siendo neutral');
+  assert.strictEqual(Core.computeCoopTag(0, 16), 'noncooperative', 'un punto pasado el umbral (negativo) ya es no colabora');
+  assert.strictEqual(Core.computeCoopTag(20, 8), 'neutral', 'diferencia de 12, dentro de la franja de equilibrio');
+  assert.strictEqual(Core.computeCoopTag(undefined, undefined), 'neutral', 'sin votos todavía (undefined) se trata como 0/0');
+});
+
 console.log(`\n${passed} pruebas OK`);
 if (process.exitCode) {
   console.error('Hay pruebas fallidas.');

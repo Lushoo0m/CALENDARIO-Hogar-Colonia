@@ -284,6 +284,22 @@
     return tierOf;
   }
 
+  // Sistema de comportamiento: independiente de la carga de limpieza.
+  // Cada estudiante acumula votos positivos/negativos (botones + / - en la
+  // pestaña Estudiantes) y el ícono de cooperación se asigna solo, según la
+  // diferencia entre ambos — nunca se elige a mano.
+  //   diferencia > umbral  -> cooperativo/a (👏)
+  //   diferencia < -umbral -> no colabora (🎯)
+  //   |diferencia| <= umbral -> neutral / balanza de equilibrio (⚖️)
+  const COOP_BALANCE_THRESHOLD = 15;
+
+  function computeCoopTag(positive, negative) {
+    const diff = (positive || 0) - (negative || 0);
+    if (diff > COOP_BALANCE_THRESHOLD) return 'cooperative';
+    if (diff < -COOP_BALANCE_THRESHOLD) return 'noncooperative';
+    return 'neutral';
+  }
+
   function eligibleAreas(student) {
     return AREAS.filter((a) => {
       if (a.id === 'kitchen1' && student.kitchenGroup === 'k2') return false;
@@ -784,6 +800,8 @@
     countsForStudent,
     computeTiers,
     computeDisplayTiers,
+    COOP_BALANCE_THRESHOLD,
+    computeCoopTag,
     eligibleAreas,
     solveWeek,
     generateWeekProposal,
