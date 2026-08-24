@@ -103,7 +103,7 @@ html, body {
    en las 3, no solo en Generar. El aviso de "girá el celular" solo se ve
    estando en pantalla completa Y en vertical — apenas se gira a
    horizontal, la media query lo esconde sola. */
-.global-toolbar { display: flex; justify-content: flex-end; margin: 10px 0; }
+.global-toolbar { display: flex; justify-content: center; margin: 10px 0; }
 .landscape-hint { display: none; margin: 0 0 12px; font-size: 0.82rem; }
 body.is-fullscreen .landscape-hint { display: block; }
 @media (orientation: landscape) {

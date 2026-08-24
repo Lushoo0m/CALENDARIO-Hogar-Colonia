@@ -1074,7 +1074,7 @@
   // -----------------------------------------------------------------
   // Tab: Estudiantes
   // -----------------------------------------------------------------
-  const TIER_LABELS = { high: 'Carga alta', mid: 'Carga media', low: 'Carga baja' };
+  const TIER_STATUS_LABELS = { high: 'Sobrecarga', mid: 'Moderada', low: 'Liviana' };
   const COOP_ICONS = { noncooperative: '🎯', cooperative: '👏', neutral: '⚖️' };
   const COOP_TITLES = { noncooperative: 'No colabora', cooperative: 'Cooperativo/a', neutral: 'Neutral (balanza de equilibrio)' };
   function kitchenGroupLabel(s) { return s.kitchenGroup === 'k2' ? 'COCINA II' : 'COCINA'; }
@@ -1098,7 +1098,6 @@
     const dayOptions = Core.DOW_NAMES_ES.map((d, i) => `<option value="${i + 1}">${d}</option>`).join('');
 
     const rows = sortedStudents.map((s) => {
-      const points = Core.totalPointsForStudent(sortedAssignments, s.id);
       const editing = editingStudentId === s.id;
       const expanded = expandedStudentId === s.id;
       const tier = tierOf[s.id];
@@ -1139,7 +1138,7 @@
             <div class="detail-tags">
               <span class="day-pill dow-${s.fixedDay}">${Core.DOW_NAMES_ES[s.fixedDay - 1]}</span>
               <span class="kitchen-tag">${kitchenGroupLabel(s)}</span>
-              <span class="points-badge tier-${tier || 'low'}">${points} pts (carga)</span>
+              <span class="points-badge tier-${tier || 'low'}">${TIER_STATUS_LABELS[tier || 'low']}</span>
               <span class="points-badge coop-${coopTag}">${COOP_ICONS[coopTag]} +${behaviorPositive} / −${behaviorNegative}</span>
             </div>
           </div>
