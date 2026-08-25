@@ -1074,7 +1074,8 @@
   // -----------------------------------------------------------------
   // Tab: Estudiantes
   // -----------------------------------------------------------------
-  const TIER_STATUS_LABELS = { high: 'Sobrecarga', mid: 'Moderada', low: 'Liviana' };
+  const TIER_STATUS_ICONS = { high: '🏋️', low: '🪶' };
+  const TIER_STATUS_TITLES = { high: 'Sobrecargado/a', low: 'Liviano/a' };
   const COOP_ICONS = { noncooperative: '🎯', cooperative: '👏', neutral: '⚖️' };
   const COOP_TITLES = { noncooperative: 'No colabora', cooperative: 'Cooperativo/a', neutral: 'Neutral (balanza de equilibrio)' };
   function kitchenGroupLabel(s) { return s.kitchenGroup === 'k2' ? 'COCINA II' : 'COCINA'; }
@@ -1138,7 +1139,7 @@
             <div class="detail-tags">
               <span class="day-pill dow-${s.fixedDay}">${Core.DOW_NAMES_ES[s.fixedDay - 1]}</span>
               <span class="kitchen-tag">${kitchenGroupLabel(s)}</span>
-              <span class="points-badge tier-${tier || 'low'}">${TIER_STATUS_LABELS[tier || 'low']}</span>
+              <span class="points-badge tier-${tier || 'low'}" title="${TIER_STATUS_TITLES[tier || 'low']}">${TIER_STATUS_ICONS[tier || 'low']}</span>
               <span class="points-badge coop-${coopTag}">${COOP_ICONS[coopTag]} +${behaviorPositive} / −${behaviorNegative}</span>
             </div>
           </div>

@@ -443,9 +443,9 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
 .kitchen-tag { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.03em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
 /* Puntos: colores invertidos respecto al badge de carga (más puntos = verde) */
 .points-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; border: 1px solid var(--border); }
-.points-badge.tier-high { color: #b3d9bc; border-color: #2c4534; background: var(--ok-bg); }
-.points-badge.tier-mid { color: #e8caa0; border-color: #4a3d20; background: var(--warning-bg); }
-.points-badge.tier-low { color: #edb7bf; border-color: #4a2830; background: var(--danger-bg); }
+.points-badge.tier-high, .points-badge.tier-low { font-size: 0.95rem; padding: 1px 10px; }
+.points-badge.tier-high { border-color: #2c4534; background: var(--ok-bg); }
+.points-badge.tier-low { border-color: #4a2830; background: var(--danger-bg); }
 .points-badge.coop-cooperative { color: #b3d9bc; border-color: #2c4534; background: var(--ok-bg); }
 .points-badge.coop-neutral { color: var(--muted); }
 .points-badge.coop-noncooperative { color: #edb7bf; border-color: #4a2830; background: var(--danger-bg); }

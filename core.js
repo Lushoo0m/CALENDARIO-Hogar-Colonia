@@ -260,11 +260,13 @@
   }
 
   /**
-   * Igual que computeTiers, pero para MOSTRAR en pantalla (badge de carga
-   * por estudiante): un empate exacto de puntos nunca separa a dos
-   * estudiantes en tiers distintos, aunque el tercio quede desparejo.
-   * No se usa para el algoritmo de asignación — ahí importa que el corte
-   * sea siempre el mismo (computeTiers de arriba), no que se vea "prolijo".
+   * Para MOSTRAR en pantalla (badge de carga por estudiante): dos estados
+   * nomás, liviano/a ('low') o sobrecargado/a ('high'), cortando por la
+   * mediana de puntos. Un empate exacto de puntos en el corte nunca separa
+   * a dos estudiantes con la misma carga en estados distintos, aunque la
+   * mitad quede despareja. No se usa para el algoritmo de asignación — ahí
+   * importa que el corte sea siempre el mismo (computeTiers de arriba), no
+   * que se vea "prolijo".
    */
   function computeDisplayTiers(activeStudents, sortedAssignments) {
     const withPoints = activeStudents.map((s) => ({
@@ -273,13 +275,11 @@
     }));
     withPoints.sort((a, b) => a.points - b.points);
     const n = withPoints.length;
-    let lowEnd = Math.ceil(n / 3);
-    let midEnd = lowEnd + Math.ceil((n - lowEnd) / 2);
-    while (lowEnd > 0 && lowEnd < n && withPoints[lowEnd].points === withPoints[lowEnd - 1].points) lowEnd++;
-    while (midEnd > lowEnd && midEnd < n && withPoints[midEnd].points === withPoints[midEnd - 1].points) midEnd++;
+    let cut = Math.ceil(n / 2);
+    while (cut > 0 && cut < n && withPoints[cut].points === withPoints[cut - 1].points) cut++;
     const tierOf = {};
     withPoints.forEach((s, idx) => {
-      tierOf[s.id] = idx < lowEnd ? 'low' : idx < midEnd ? 'mid' : 'high';
+      tierOf[s.id] = idx < cut ? 'low' : 'high';
     });
     return tierOf;
   }

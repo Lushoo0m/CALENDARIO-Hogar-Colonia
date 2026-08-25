@@ -443,6 +443,29 @@ check('computeCoopTag: umbral de ±15 define cooperativo/no colabora/neutral', (
   assert.strictEqual(Core.computeCoopTag(undefined, undefined), 'neutral', 'sin votos todavía (undefined) se trata como 0/0');
 });
 
+check('computeDisplayTiers: corte binario liviano/sobrecargado por mediana, sin estado intermedio', () => {
+  const students = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => ({ id, active: true }));
+  const assignments = [
+    { studentId: 'a', points: 10 }, { studentId: 'b', points: 20 }, { studentId: 'c', points: 30 },
+    { studentId: 'd', points: 40 }, { studentId: 'e', points: 50 }, { studentId: 'f', points: 60 },
+  ];
+  const tiers = Core.computeDisplayTiers(students, assignments);
+  assert.deepStrictEqual(new Set(Object.values(tiers)), new Set(['low', 'high']), 'solo existen dos estados posibles (no hay "moderada")');
+  assert.strictEqual(tiers.a, 'low');
+  assert.strictEqual(tiers.b, 'low');
+  assert.strictEqual(tiers.c, 'low');
+  assert.strictEqual(tiers.d, 'high');
+  assert.strictEqual(tiers.e, 'high');
+  assert.strictEqual(tiers.f, 'high');
+});
+
+check('computeDisplayTiers: un empate exacto en el corte nunca separa a dos estudiantes con la misma carga', () => {
+  const students = ['a', 'b', 'c', 'd'].map((id) => ({ id, active: true }));
+  const assignments = ['a', 'b', 'c', 'd'].map((id) => ({ studentId: id, points: 10 }));
+  const tiers = Core.computeDisplayTiers(students, assignments);
+  assert.strictEqual(new Set(Object.values(tiers)).size, 1, 'con todos empatados en puntos, todos deberían quedar en el mismo estado');
+});
+
 console.log(`\n${passed} pruebas OK`);
 if (process.exitCode) {
   console.error('Hay pruebas fallidas.');
