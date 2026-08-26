@@ -1141,6 +1141,7 @@
               <span class="kitchen-tag">${kitchenGroupLabel(s)}</span>
               <span class="points-badge tier-${tier || 'low'}" title="${TIER_STATUS_TITLES[tier || 'low']}">${TIER_STATUS_ICONS[tier || 'low']}</span>
               <span class="points-badge coop-${coopTag}">${COOP_ICONS[coopTag]} +${behaviorPositive} / −${behaviorNegative}</span>
+              ${(behaviorPositive || behaviorNegative) ? `<button type="button" class="btn small secondary" data-action="reset-behavior" data-id="${s.id}">↺ Reiniciar a 0</button>` : ''}
             </div>
           </div>
         ` : '';
@@ -1288,6 +1289,18 @@
     saveState();
     renderEstudiantes();
   }
+
+  async function handleResetBehavior(id) {
+    const student = state.students.find((s) => s.id === id);
+    if (!student) return;
+    const ok = await showConfirmModal(`¿Reiniciar a 0 los votos de comportamiento de ${student.name}? Esta acción no se puede deshacer.`);
+    if (!ok) return;
+    student.behaviorPositive = 0;
+    student.behaviorNegative = 0;
+    saveState();
+    renderEstudiantes();
+  }
+
   function handleRenameStart(id) { editingStudentId = id; renderEstudiantes(); }
   function handleRenameCancel() { editingStudentId = null; renderEstudiantes(); }
   function handleRenameSave(id) {
@@ -1863,6 +1876,7 @@
       else if (action === 'cancel-rename') handleRenameCancel();
       else if (action === 'delete') handleDeleteStudent(id);
       else if (action === 'behavior-vote') handleBehaviorVote(id, btn.dataset.delta);
+      else if (action === 'reset-behavior') handleResetBehavior(id);
       else if (action === 'export-backup') handleExportBackup();
       else if (action === 'import-backup') handleImportBackupClick();
     });
