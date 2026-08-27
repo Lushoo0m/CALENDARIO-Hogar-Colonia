@@ -444,8 +444,8 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
 /* Puntos: colores invertidos respecto al badge de carga (más puntos = verde) */
 .points-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; border: 1px solid var(--border); }
 .points-badge.tier-high, .points-badge.tier-low { font-size: 0.95rem; padding: 1px 10px; }
-.points-badge.tier-high { border-color: #4a2830; background: var(--danger-bg); }
-.points-badge.tier-low { border-color: #2c4534; background: var(--ok-bg); }
+.points-badge.tier-high { color: #edb7bf; border-color: #4a2830; background: var(--danger-bg); }
+.points-badge.tier-low { color: #b3d9bc; border-color: #2c4534; background: var(--ok-bg); }
 .points-badge.coop-cooperative { color: #b3d9bc; border-color: #2c4534; background: var(--ok-bg); }
 .points-badge.coop-neutral { color: var(--muted); }
 .points-badge.coop-noncooperative { color: #edb7bf; border-color: #4a2830; background: var(--danger-bg); }
@@ -457,6 +457,17 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
   color: var(--muted); font-size: 0.72rem; font-family: inherit;
 }
 .reset-behavior-link:hover { color: var(--text); }
+
+/* Reinicio en lote: barra de confirmar/cancelar arriba de la lista, y un
+   checkbox por estudiante (vacío por defecto, salvo el que disparó el
+   modo tocando "↺ reset") mientras dura la selección. */
+.bulk-reset-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  background: var(--panel-2); border: 1px dashed var(--border); border-radius: 8px;
+  padding: 10px 14px; margin-bottom: 14px;
+}
+.reset-select-checkbox { display: inline-flex; align-items: center; }
+.reset-select-checkbox input { width: 18px; height: 18px; cursor: pointer; }
 
 /* Switch deslizable de bloqueo/desbloqueo (semana anterior en Generar) */
 .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }

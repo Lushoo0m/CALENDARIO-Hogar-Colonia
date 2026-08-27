@@ -33,6 +33,12 @@
   // de una burbuja que tocó para ver el texto completo. Solo estado de UI.
   const expandedSeverityGroups = new Set();
   const expandedConflictItems = new Set();
+  // Modo selección para reiniciar votos de comportamiento en lote: al tocar
+  // "↺ reset" de cualquier estudiante se activa, aparece un checkbox junto
+  // a cada nombre (ese estudiante queda pre-marcado) y recién se reinicia
+  // de verdad al confirmar. Solo estado de UI.
+  let bulkResetMode = false;
+  const bulkResetSelected = new Set();
 
   function defaultState() {
     return {
@@ -1074,7 +1080,12 @@
   // -----------------------------------------------------------------
   // Tab: Estudiantes
   // -----------------------------------------------------------------
-  const TIER_STATUS_ICONS = { high: '🏋️', low: '🪶' };
+  // "high" (sobrecargado/a) usa un ícono propio de pesa/mancuerna en vez de
+  // un emoji — el emoji de "persona levantando pesas" no se entendía bien
+  // en un badge tan chico. Usa currentColor para heredar el color del
+  // badge (rojo, ver styles.css).
+  const BARBELL_ICON_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" style="vertical-align:-3px;"><rect x="0" y="10" width="3" height="4" rx="1" fill="currentColor"/><rect x="3.5" y="8" width="3" height="8" rx="1" fill="currentColor"/><rect x="10" y="9.5" width="4" height="5" rx="1" fill="currentColor"/><rect x="17.5" y="8" width="3" height="8" rx="1" fill="currentColor"/><rect x="21" y="10" width="3" height="4" rx="1" fill="currentColor"/></svg>';
+  const TIER_STATUS_ICONS = { high: BARBELL_ICON_SVG, low: '🪶' };
   const TIER_STATUS_TITLES = { high: 'Sobrecargado/a', low: 'Liviano/a' };
   const COOP_ICONS = { noncooperative: '🎯', cooperative: '👏', neutral: '⚖️' };
   const COOP_TITLES = { noncooperative: 'No colabora', cooperative: 'Cooperativo/a', neutral: 'Neutral (balanza de equilibrio)' };
@@ -1141,7 +1152,7 @@
               <span class="kitchen-tag">${kitchenGroupLabel(s)}</span>
               <span class="points-badge tier-${tier || 'low'}" title="${TIER_STATUS_TITLES[tier || 'low']}">${TIER_STATUS_ICONS[tier || 'low']}</span>
               <span class="points-badge coop-${coopTag}">${COOP_ICONS[coopTag]} +${behaviorPositive} / −${behaviorNegative}</span>
-              ${(behaviorPositive || behaviorNegative) ? `<button type="button" class="reset-behavior-link" data-action="reset-behavior" data-id="${s.id}">↺ reset</button>` : ''}
+              ${(!bulkResetMode && (behaviorPositive || behaviorNegative)) ? `<button type="button" class="reset-behavior-link" data-action="reset-behavior" data-id="${s.id}">↺ reset</button>` : ''}
             </div>
           </div>
         ` : '';
@@ -1150,10 +1161,16 @@
           <button class="btn small danger" data-action="delete" data-id="${s.id}">Quitar beca</button>
         `;
       const coopBadgeHtml = `<span class="coop-badge coop-${coopTag}" title="${COOP_TITLES[coopTag]}">${COOP_ICONS[coopTag]}</span>`;
+      const resetCheckboxHtml = bulkResetMode
+        ? `<label class="reset-select-checkbox" title="Incluir en el reinicio">
+             <input type="checkbox" data-action="toggle-reset-select" data-id="${s.id}" ${bulkResetSelected.has(s.id) ? 'checked' : ''}>
+           </label>`
+        : '';
 
       return `<div class="student-row ${s.active ? '' : 'inactive'}" data-id="${s.id}">
         <div class="student-main">
           <div class="student-name-row">
+            ${resetCheckboxHtml}
             <button class="student-name-toggle" data-action="toggle-detail" data-id="${s.id}">
               <span class="student-name">${escapeHtml(s.name)}</span>
             </button>
@@ -1181,6 +1198,15 @@
       <div class="card">
         <h2>Estudiantes (mayor carga primero)</h2>
         <p class="muted">Tocá un nombre para ver el detalle completo (nombre completo, sexo, día, grupo, puntos).</p>
+        ${bulkResetMode ? `
+          <div class="bulk-reset-bar">
+            <span class="muted">Marcá a quién reiniciar el comportamiento (positivos y negativos a 0) y confirmá.</span>
+            <div class="btn-row">
+              <button type="button" class="btn small" data-action="confirm-bulk-reset">Confirmar reinicio</button>
+              <button type="button" class="btn small secondary" data-action="cancel-bulk-reset">Cancelar</button>
+            </div>
+          </div>
+        ` : ''}
         <div class="student-list">${rows || '<p class="empty-state">No hay estudiantes cargados.</p>'}</div>
       </div>
       <div class="card">
@@ -1290,15 +1316,41 @@
     renderEstudiantes();
   }
 
-  async function handleResetBehavior(id) {
-    const student = state.students.find((s) => s.id === id);
-    if (!student) return;
-    const ok = await showConfirmModal(`¿Reiniciar a 0 los votos de comportamiento de ${student.name}? Esta acción no se puede deshacer.`);
+  // Tocar "↺ reset" en cualquier estudiante activa el modo selección (con
+  // ese estudiante ya marcado) en vez de reiniciar directo — así se puede
+  // sumar a otros antes de confirmar de una sola vez.
+  function handleResetBehavior(id) {
+    bulkResetMode = true;
+    bulkResetSelected.clear();
+    bulkResetSelected.add(id);
+    renderEstudiantes();
+  }
+
+  function handleCancelBulkReset() {
+    bulkResetMode = false;
+    bulkResetSelected.clear();
+    renderEstudiantes();
+  }
+
+  function handleToggleResetSelect(id) {
+    if (bulkResetSelected.has(id)) bulkResetSelected.delete(id);
+    else bulkResetSelected.add(id);
+    renderEstudiantes();
+  }
+
+  async function handleConfirmBulkReset() {
+    if (!bulkResetSelected.size) { showToast('No marcaste a nadie.'); return; }
+    const names = state.students.filter((s) => bulkResetSelected.has(s.id)).map((s) => s.name);
+    const ok = await showConfirmModal(`¿Reiniciar a 0 los votos de comportamiento de ${names.length === 1 ? names[0] : `${names.length} estudiantes`} (${names.join(', ')})? Esta acción no se puede deshacer.`);
     if (!ok) return;
-    student.behaviorPositive = 0;
-    student.behaviorNegative = 0;
+    state.students.forEach((s) => {
+      if (bulkResetSelected.has(s.id)) { s.behaviorPositive = 0; s.behaviorNegative = 0; }
+    });
+    bulkResetMode = false;
+    bulkResetSelected.clear();
     saveState();
     renderEstudiantes();
+    showToast('Comportamiento reiniciado.');
   }
 
   function handleRenameStart(id) { editingStudentId = id; renderEstudiantes(); }
@@ -1877,11 +1929,14 @@
       else if (action === 'delete') handleDeleteStudent(id);
       else if (action === 'behavior-vote') handleBehaviorVote(id, btn.dataset.delta);
       else if (action === 'reset-behavior') handleResetBehavior(id);
+      else if (action === 'confirm-bulk-reset') handleConfirmBulkReset();
+      else if (action === 'cancel-bulk-reset') handleCancelBulkReset();
       else if (action === 'export-backup') handleExportBackup();
       else if (action === 'import-backup') handleImportBackupClick();
     });
     el.addEventListener('change', (e) => {
       if (e.target.id === 'import-backup-input') handleImportBackupFile(e.target.files[0]);
+      else if (e.target.dataset.action === 'toggle-reset-select') handleToggleResetSelect(e.target.dataset.id);
     });
   }
 
