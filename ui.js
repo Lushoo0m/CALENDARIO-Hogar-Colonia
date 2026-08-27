@@ -1141,7 +1141,7 @@
               <span class="kitchen-tag">${kitchenGroupLabel(s)}</span>
               <span class="points-badge tier-${tier || 'low'}" title="${TIER_STATUS_TITLES[tier || 'low']}">${TIER_STATUS_ICONS[tier || 'low']}</span>
               <span class="points-badge coop-${coopTag}">${COOP_ICONS[coopTag]} +${behaviorPositive} / −${behaviorNegative}</span>
-              ${(behaviorPositive || behaviorNegative) ? `<button type="button" class="btn small secondary" data-action="reset-behavior" data-id="${s.id}">↺ Reiniciar a 0</button>` : ''}
+              ${(behaviorPositive || behaviorNegative) ? `<button type="button" class="reset-behavior-link" data-action="reset-behavior" data-id="${s.id}">↺ reset</button>` : ''}
             </div>
           </div>
         ` : '';

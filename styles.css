@@ -444,11 +444,19 @@ select:focus, input:focus { outline: 1px solid var(--accent); }
 /* Puntos: colores invertidos respecto al badge de carga (más puntos = verde) */
 .points-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; border: 1px solid var(--border); }
 .points-badge.tier-high, .points-badge.tier-low { font-size: 0.95rem; padding: 1px 10px; }
-.points-badge.tier-high { border-color: #2c4534; background: var(--ok-bg); }
-.points-badge.tier-low { border-color: #4a2830; background: var(--danger-bg); }
+.points-badge.tier-high { border-color: #4a2830; background: var(--danger-bg); }
+.points-badge.tier-low { border-color: #2c4534; background: var(--ok-bg); }
 .points-badge.coop-cooperative { color: #b3d9bc; border-color: #2c4534; background: var(--ok-bg); }
 .points-badge.coop-neutral { color: var(--muted); }
 .points-badge.coop-noncooperative { color: #edb7bf; border-color: #4a2830; background: var(--danger-bg); }
+
+/* Reiniciar votos de comportamiento: discreto a propósito (no es una
+   acción de todos los días), solo ícono + texto chico. */
+.reset-behavior-link {
+  background: none; border: none; padding: 2px 4px; cursor: pointer;
+  color: var(--muted); font-size: 0.72rem; font-family: inherit;
+}
+.reset-behavior-link:hover { color: var(--text); }
 
 /* Switch deslizable de bloqueo/desbloqueo (semana anterior en Generar) */
 .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
