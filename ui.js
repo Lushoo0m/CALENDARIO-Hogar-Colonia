@@ -1478,6 +1478,10 @@
               <svg class="icon-download" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3zm1.5.5v6.6l2.6-2.4a.75.75 0 0 1 1 0l2 1.85 1.9-1.75a.75.75 0 0 1 1 0l1.5 1.4V3.5h-10zm0 9v-.66l3.1-2.87 4.9 4.53H3.5zm9-.06-2.02-1.87 2.02-1.86v3.73zM5.5 6.2a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/></svg>
               Imagen
             </button>
+            <button class="btn small secondary" data-action="download-image-v2" data-month-key="${key}" title="Imagen con fondo claro y colores por día, más legible para algunos estudiantes">
+              <svg class="icon-download" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3zm1.5.5v6.6l2.6-2.4a.75.75 0 0 1 1 0l2 1.85 1.9-1.75a.75.75 0 0 1 1 0l1.5 1.4V3.5h-10zm0 9v-.66l3.1-2.87 4.9 4.53H3.5zm9-.06-2.02-1.87 2.02-1.86v3.73zM5.5 6.2a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/></svg>
+              IMG2
+            </button>
             <button class="btn small secondary" data-action="request-month-edit" data-month-key="${key}">
               <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" style="vertical-align:-1px;margin-right:4px;"><path fill="currentColor" d="M12.146.854a.5.5 0 0 1 .708 0l2.292 2.292a.5.5 0 0 1 0 .708L4.708 14.292a.5.5 0 0 1-.233.131l-3.5 1a.5.5 0 0 1-.618-.618l1-3.5a.5.5 0 0 1 .131-.233L12.146.854zM11.207 2.5 13.5 4.793l1.146-1.147L12.354 1.354 11.207 2.5zM2.5 11.707l7-7L11.793 6l-7 7-1.5.429.207-1.722z"/></svg>
               Editar
@@ -1786,6 +1790,134 @@
     return canvas.toDataURL('image/png');
   }
 
+  // Estilo alternativo ("IMG2"): fondo claro, una mini-tabla propia por
+  // semana (con su propio encabezado completo, no solo un divisor), y el
+  // color de cada día tomado tal cual de un calendario de referencia que
+  // algunos estudiantes ya encuentran más legible que el estilo oscuro de
+  // arriba. Los colores por día son fijos (no dependen del tema oscuro de
+  // la app) para que esta imagen se vea siempre igual.
+  const DOW_LIGHT_COLORS = { 1: '#d9ead5', 2: '#f4cccc', 3: '#6aa84f', 4: '#d9d2e9', 5: '#fff2cc', 6: '#d9d9d9', 7: '#cfe2f3' };
+
+  function buildMonthImageDataUrlV2(monthKey) {
+    const weeksOfMonth = weeksOfMonthKey(monthKey);
+    if (!weeksOfMonth.length) return null;
+    const [, m] = monthKey.split('-').map(Number);
+    const label = `${Core.MONTH_NAMES_ES[m - 1]} ${weeksOfMonth[0].year}`;
+
+    const INK = '#111111';
+    const MUTED = '#5f6368';
+    const HEADER_BG = '#1e4f7b';
+    const BORDER = '#999999';
+
+    const dayColWidth = 175;
+    const areaColWidth = 165;
+    const cols = [{ id: 'day', label: 'Día', width: dayColWidth }]
+      .concat(Core.AREAS.map((a) => ({ id: a.id, label: a.label, width: areaColWidth })));
+    const tableWidth = cols.reduce((sum, c) => sum + c.width, 0);
+
+    const titleH = 56;
+    const semanaBoxH = 26;
+    const semanaBoxW = 150;
+    const headerH = 34;
+    const rowH = 34;
+    const weekGap = 14;
+    const footerH = 24;
+    const pad = 22;
+    const width = tableWidth + pad * 2;
+    const weekBlockHeights = weeksOfMonth.map((w) => semanaBoxH + headerH + w.days.length * rowH);
+    const height = titleH + weekBlockHeights.reduce((a, b) => a + b, 0) + weekGap * (weeksOfMonth.length - 1) + footerH + pad * 2;
+
+    const SCALE = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = width * SCALE;
+    canvas.height = height * SCALE;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(SCALE, SCALE);
+    ctx.textBaseline = 'middle';
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.fillStyle = INK;
+    ctx.font = `700 19px ${IMG_FONT}`;
+    ctx.fillText('Hogar Colonia — Calendario de limpieza', pad, pad + 10);
+    ctx.fillStyle = MUTED;
+    ctx.font = `600 14px ${IMG_FONT}`;
+    ctx.fillText(label, pad, pad + 34);
+
+    let y = pad + titleH;
+
+    weeksOfMonth.forEach((week) => {
+      // Caja "SEMANA N", chica, arriba a la izquierda de la tabla de esa semana.
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(pad, y, semanaBoxW, semanaBoxH);
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(pad + 0.75, y + 0.75, semanaBoxW - 1.5, semanaBoxH - 1.5);
+      ctx.fillStyle = INK;
+      ctx.font = `700 12px ${IMG_FONT}`;
+      ctx.fillText(`SEMANA ${week.weekIndex}`, pad + 10, y + semanaBoxH / 2 + 1);
+      y += semanaBoxH;
+
+      // Encabezado completo (Día + las 7 áreas), no un divisor chico.
+      ctx.fillStyle = HEADER_BG;
+      ctx.fillRect(pad, y, tableWidth, headerH);
+      ctx.strokeStyle = BORDER;
+      ctx.lineWidth = 1;
+      let hx = pad;
+      ctx.font = `700 11px ${IMG_FONT}`;
+      cols.forEach((c) => {
+        ctx.strokeRect(hx + 0.5, y + 0.5, c.width - 1, headerH - 1);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(c.label.toUpperCase(), hx + 10, y + headerH / 2 + 1);
+        hx += c.width;
+      });
+      y += headerH;
+
+      week.days.forEach((day) => {
+        const cellByArea = {};
+        day.assignments.forEach((a) => {
+          const existing = cellByArea[a.area];
+          cellByArea[a.area] = existing ? `${existing}, ${a.name}` : a.name;
+        });
+
+        ctx.fillStyle = DOW_LIGHT_COLORS[day.dow];
+        ctx.fillRect(pad, y, tableWidth, rowH);
+        ctx.strokeStyle = BORDER;
+        let bx = pad;
+        cols.forEach((c) => { ctx.strokeRect(bx + 0.5, y + 0.5, c.width - 1, rowH - 1); bx += c.width; });
+
+        let cx = pad;
+        const dateObj = Core.fromISO(day.date);
+        const dowLabel = Core.DOW_NAMES_ES[day.dow - 1];
+        const dayLabel = `${dowLabel} ${dateObj.getDate()}`;
+        ctx.fillStyle = INK;
+        fitFontSize(ctx, dayLabel, dayColWidth - 16, '700', 12);
+        ctx.fillText(dayLabel, cx + 10, y + rowH / 2 + 1);
+        cx += dayColWidth;
+
+        Core.AREAS.forEach((ar) => {
+          const text = cellByArea[ar.id] || '-------';
+          const maxTextWidth = areaColWidth - 16;
+          fitFontSize(ctx, text, maxTextWidth, '400', 12);
+          ctx.fillStyle = text === '-------' ? MUTED : INK;
+          ctx.fillText(text, cx + 10, y + rowH / 2 + 1);
+          cx += areaColWidth;
+        });
+
+        y += rowH;
+      });
+
+      y += weekGap;
+    });
+
+    ctx.fillStyle = MUTED;
+    ctx.font = `400 10.5px ${IMG_FONT}`;
+    ctx.fillText(`Generado ${new Date().toLocaleDateString('es-AR')}`, pad, y - weekGap + footerH / 2);
+
+    return canvas.toDataURL('image/png');
+  }
+
   function handleDownloadMonthImage(monthKey) {
     const dataUrl = buildMonthImageDataUrl(monthKey);
     if (!dataUrl) return;
@@ -1797,6 +1929,22 @@
     const link = document.createElement('a');
     link.href = dataUrl;
     link.download = `calendario-${fileLabel}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  function handleDownloadMonthImageV2(monthKey) {
+    const dataUrl = buildMonthImageDataUrlV2(monthKey);
+    if (!dataUrl) return;
+    const [, m] = monthKey.split('-').map(Number);
+    const weeksOfMonth = weeksOfMonthKey(monthKey);
+    const fileLabel = `${Core.MONTH_NAMES_ES[m - 1]}-${weeksOfMonth[0].year}`
+      .toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = `calendario-${fileLabel}-v2.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1948,6 +2096,7 @@
       const action = btn.dataset.action;
       if (action === 'print-month') handlePrintMonth(btn.dataset.monthKey);
       else if (action === 'download-image') handleDownloadMonthImage(btn.dataset.monthKey);
+      else if (action === 'download-image-v2') handleDownloadMonthImageV2(btn.dataset.monthKey);
       else if (action === 'toggle-month') handleToggleMonth(btn.dataset.monthKey);
       else if (action === 'request-month-edit') handleRequestMonthEdit(btn.dataset.monthKey);
       else if (action === 'save-month-edit') handleSaveMonthEdit();
