@@ -1794,8 +1794,11 @@
   // semana (con su propio encabezado completo, no solo un divisor), y el
   // color de cada día tomado tal cual de un calendario de referencia que
   // algunos estudiantes ya encuentran más legible que el estilo oscuro de
-  // arriba. Los colores por día son fijos (no dependen del tema oscuro de
-  // la app) para que esta imagen se vea siempre igual.
+  // arriba. Probamos aclarar los DOW_COLORS del tema oscuro para esto,
+  // pero al ser tonos oscuros muy parecidos entre sí en matiz, aclarados
+  // terminan viéndose casi todos del mismo gris — se pierde la
+  // diferenciación por color que es el punto de este estilo. Por eso acá
+  // los colores son fijos e independientes del tema oscuro de la app.
   const DOW_LIGHT_COLORS = { 1: '#d9ead5', 2: '#f4cccc', 3: '#6aa84f', 4: '#d9d2e9', 5: '#fff2cc', 6: '#d9d9d9', 7: '#cfe2f3' };
 
   function buildMonthImageDataUrlV2(monthKey) {
@@ -1819,7 +1822,7 @@
     const semanaBoxH = 26;
     const semanaBoxW = 150;
     const headerH = 34;
-    const rowH = 34;
+    const rowH = 40;
     const weekGap = 14;
     const footerH = 24;
     const pad = 22;
@@ -1892,15 +1895,16 @@
         const dowLabel = Core.DOW_NAMES_ES[day.dow - 1];
         const dayLabel = `${dowLabel} ${dateObj.getDate()}`;
         ctx.fillStyle = INK;
-        fitFontSize(ctx, dayLabel, dayColWidth - 16, '700', 12);
+        fitFontSize(ctx, dayLabel, dayColWidth - 16, '700', 14);
         ctx.fillText(dayLabel, cx + 10, y + rowH / 2 + 1);
         cx += dayColWidth;
 
         Core.AREAS.forEach((ar) => {
           const text = cellByArea[ar.id] || '-------';
           const maxTextWidth = areaColWidth - 16;
-          fitFontSize(ctx, text, maxTextWidth, '400', 12);
-          ctx.fillStyle = text === '-------' ? MUTED : INK;
+          const isEmpty = text === '-------';
+          fitFontSize(ctx, text, maxTextWidth, isEmpty ? '600' : '700', 14);
+          ctx.fillStyle = isEmpty ? MUTED : INK;
           ctx.fillText(text, cx + 10, y + rowH / 2 + 1);
           cx += areaColWidth;
         });
