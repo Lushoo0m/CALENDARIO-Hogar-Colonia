@@ -1812,19 +1812,19 @@
     const HEADER_BG = '#1e4f7b';
     const BORDER = '#999999';
 
-    const dayColWidth = 175;
-    const areaColWidth = 165;
+    const dayColWidth = 190;
+    const areaColWidth = 178;
     const cols = [{ id: 'day', label: 'Día', width: dayColWidth }]
       .concat(Core.AREAS.map((a) => ({ id: a.id, label: a.label, width: areaColWidth })));
     const tableWidth = cols.reduce((sum, c) => sum + c.width, 0);
 
-    const titleH = 56;
-    const semanaBoxH = 26;
-    const semanaBoxW = 150;
-    const headerH = 34;
-    const rowH = 40;
+    const titleH = 60;
+    const semanaBoxH = 30;
+    const semanaBoxW = 165;
+    const headerH = 38;
+    const rowH = 46;
     const weekGap = 14;
-    const footerH = 24;
+    const footerH = 26;
     const pad = 22;
     const width = tableWidth + pad * 2;
     const weekBlockHeights = weeksOfMonth.map((w) => semanaBoxH + headerH + w.days.length * rowH);
@@ -1842,11 +1842,11 @@
     ctx.fillRect(0, 0, width, height);
 
     ctx.fillStyle = INK;
-    ctx.font = `700 19px ${IMG_FONT}`;
+    ctx.font = `700 22px ${IMG_FONT}`;
     ctx.fillText('Hogar Colonia — Calendario de limpieza', pad, pad + 10);
     ctx.fillStyle = MUTED;
-    ctx.font = `600 14px ${IMG_FONT}`;
-    ctx.fillText(label, pad, pad + 34);
+    ctx.font = `600 16px ${IMG_FONT}`;
+    ctx.fillText(label, pad, pad + 38);
 
     let y = pad + titleH;
 
@@ -1858,7 +1858,7 @@
       ctx.lineWidth = 1.5;
       ctx.strokeRect(pad + 0.75, y + 0.75, semanaBoxW - 1.5, semanaBoxH - 1.5);
       ctx.fillStyle = INK;
-      ctx.font = `700 12px ${IMG_FONT}`;
+      fitFontSize(ctx, `SEMANA ${week.weekIndex}`, semanaBoxW - 20, '700', 15);
       ctx.fillText(`SEMANA ${week.weekIndex}`, pad + 10, y + semanaBoxH / 2 + 1);
       y += semanaBoxH;
 
@@ -1868,10 +1868,10 @@
       ctx.strokeStyle = BORDER;
       ctx.lineWidth = 1;
       let hx = pad;
-      ctx.font = `700 11px ${IMG_FONT}`;
       cols.forEach((c) => {
         ctx.strokeRect(hx + 0.5, y + 0.5, c.width - 1, headerH - 1);
         ctx.fillStyle = '#ffffff';
+        fitFontSize(ctx, c.label.toUpperCase(), c.width - 16, '700', 13);
         ctx.fillText(c.label.toUpperCase(), hx + 10, y + headerH / 2 + 1);
         hx += c.width;
       });
@@ -1895,7 +1895,7 @@
         const dowLabel = Core.DOW_NAMES_ES[day.dow - 1];
         const dayLabel = `${dowLabel} ${dateObj.getDate()}`;
         ctx.fillStyle = INK;
-        fitFontSize(ctx, dayLabel, dayColWidth - 16, '700', 14);
+        fitFontSize(ctx, dayLabel, dayColWidth - 16, '700', 17);
         ctx.fillText(dayLabel, cx + 10, y + rowH / 2 + 1);
         cx += dayColWidth;
 
@@ -1903,7 +1903,7 @@
           const text = cellByArea[ar.id] || '-------';
           const maxTextWidth = areaColWidth - 16;
           const isEmpty = text === '-------';
-          fitFontSize(ctx, text, maxTextWidth, isEmpty ? '600' : '700', 14);
+          fitFontSize(ctx, text, maxTextWidth, isEmpty ? '600' : '700', 17);
           ctx.fillStyle = isEmpty ? MUTED : INK;
           ctx.fillText(text, cx + 10, y + rowH / 2 + 1);
           cx += areaColWidth;
@@ -1916,7 +1916,7 @@
     });
 
     ctx.fillStyle = MUTED;
-    ctx.font = `400 10.5px ${IMG_FONT}`;
+    ctx.font = `400 12px ${IMG_FONT}`;
     ctx.fillText(`Generado ${new Date().toLocaleDateString('es-AR')}`, pad, y - weekGap + footerH / 2);
 
     return canvas.toDataURL('image/png');
