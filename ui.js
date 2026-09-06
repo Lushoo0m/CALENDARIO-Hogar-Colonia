@@ -11,6 +11,11 @@
 (function () {
   'use strict';
   const STORAGE_KEY = 'hogar-colonia-calendario-v1';
+  // Cuando el servidor sirve la app bajo un subpath (ej. /calendario) le
+  // inyecta esta variable en index.html — server.js es la única fuente de
+  // verdad de cuál es el subpath real. Vacío (despliegue en la raíz, el de
+  // siempre) deja las rutas de API exactamente como estaban.
+  const API_BASE = (typeof window !== 'undefined' && window.APP_BASE_PATH) || '';
 
   let state = null;
   let usingServer = true;
@@ -78,7 +83,7 @@
   // loadStateFromServer. Puede fallar por cualquier motivo de red (VPN
   // reconectando, datos móviles con un pestañeo, servidor reiniciando).
   async function fetchStateOnce() {
-    const res = await fetch('/api/state', { cache: 'no-store' });
+    const res = await fetch(`${API_BASE}/api/state`, { cache: 'no-store' });
     if (!res.ok) throw new Error(`status ${res.status}`);
     const data = await res.json();
     return data ? normalizeState(data) : null;
@@ -122,7 +127,7 @@
 
   function saveState() {
     if (usingServer) {
-      fetch('/api/state', {
+      fetch(`${API_BASE}/api/state`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(state),

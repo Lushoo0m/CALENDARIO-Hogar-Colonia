@@ -40,6 +40,22 @@ const os = require('os');
 const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
+
+// Para desplegar la app montada bajo un subpath fijo detrás de un reverse
+// proxy que reenvía la ruta completa sin recortarla (ej. Tailscale Serve
+// mandando https://dominio/calendario/algo tal cual, con el prefijo
+// incluido). Sin BASE_PATH (o vacío) el comportamiento es EXACTAMENTE el
+// de siempre, sirviendo en la raíz — este es el único lugar donde se lee
+// esta variable; todo lo demás la recibe ya normalizada.
+function normalizeBasePath(raw) {
+  if (!raw) return '';
+  let p = raw.trim();
+  if (!p || p === '/') return '';
+  if (!p.startsWith('/')) p = `/${p}`;
+  return p.replace(/\/+$/, ''); // sin barra final
+}
+const BASE_PATH = normalizeBasePath(process.env.BASE_PATH);
+
 // Sin DATA_DIR, todo queda junto al código (comportamiento de siempre, el
 // que sigue usando el flujo de Windows con los .bat). Con DATA_DIR, los
 // tres archivos de datos se separan del código — necesario en Docker,
@@ -182,10 +198,16 @@ function sendJson(res, status, obj) {
   res.end(body);
 }
 
-function serveFile(res, filePath) {
-  fs.readFile(filePath, (err, content) => {
+// `transform` (opcional) recibe el contenido como texto y devuelve el texto
+// final — se usa para index.html/manifest.json, que necesitan que se les
+// meta el BASE_PATH real antes de mandarlos (ver más abajo). Se lee del
+// disco en cada pedido (no se cachea en memoria) a propósito, para que
+// siga valiendo la misma lógica de "nunca serví una versión vieja".
+function serveFile(res, filePath, transform) {
+  fs.readFile(filePath, transform ? 'utf8' : undefined, (err, content) => {
     if (err) { sendJson(res, 404, { error: 'No encontrado' }); return; }
     const ext = path.extname(filePath);
+    const body = transform ? transform(content) : content;
     // Sin caché: si no, el navegador puede seguir usando una versión vieja
     // de ui.js/core.js/etc. después de reemplazar los archivos, aunque el
     // servidor ya esté sirviendo los nuevos — muy confuso para depurar.
@@ -194,8 +216,33 @@ function serveFile(res, filePath) {
       'Cache-Control': 'no-store, no-cache, must-revalidate',
       Pragma: 'no-cache',
     });
-    res.end(content);
+    res.end(body);
   });
+}
+
+// index.html y manifest.json usan rutas relativas para todo (por eso ya
+// funcionan bien solos bajo cualquier subpath), salvo estos dos puntos que
+// si necesitan saber el BASE_PATH real:
+//  - ui.js llama a la API con ruta absoluta ("/api/state") — necesita el
+//    prefijo para pegarle al backend correcto bajo un subpath. Se lo
+//    pasamos como variable global inyectada en index.html.
+//  - El manifest de la PWA (start_url/scope/id/íconos) es absoluto por
+//    spec — sin el prefijo, una instalación bajo /calendario apuntaría
+//    su start_url a la raíz del dominio, no a la propia app.
+// Con BASE_PATH vacío (despliegue en la raíz, el de siempre) esto no
+// cambia nada: el string inyectado queda vacío y los paths de manifest.json
+// quedan idénticos a como están en el archivo.
+function injectBasePathIntoHtml(html) {
+  const script = `<script>window.APP_BASE_PATH = ${JSON.stringify(BASE_PATH)};</script>`;
+  return html.replace('<head>', `<head>\n  ${script}`);
+}
+function injectBasePathIntoManifest(json) {
+  const manifest = JSON.parse(json);
+  manifest.id = `${BASE_PATH}/`;
+  manifest.start_url = `${BASE_PATH}/`;
+  manifest.scope = `${BASE_PATH}/`;
+  manifest.icons = (manifest.icons || []).map((icon) => ({ ...icon, src: `${BASE_PATH}${icon.src}` }));
+  return JSON.stringify(manifest);
 }
 
 function readBody(req, maxBytes, cb) {
@@ -214,8 +261,26 @@ const server = http.createServer((req, res) => {
   const role = requireAuth(req, res);
   if (!role) return;
   const url = new URL(req.url, `http://${req.headers.host}`);
+  // Visitar el subpath SIN la barra final (ej. /calendario en vez de
+  // /calendario/) rompe todas las rutas relativas del HTML — el navegador
+  // las resuelve contra un nivel más arriba sin esa barra. Se redirige
+  // antes de hacer nada más para que la barra de direcciones siempre
+  // termine con "/" antes de que el navegador resuelva nada.
+  if (BASE_PATH && url.pathname === BASE_PATH && req.method === 'GET') {
+    res.writeHead(302, { Location: `${BASE_PATH}/${url.search}` });
+    res.end();
+    return;
+  }
+  // Si el proxy reenvía la ruta completa con el prefijo incluido (ej.
+  // /calendario/api/state), se lo sacamos acá para que el resto de la
+  // lógica de rutas no tenga que saber nada del subpath. Con BASE_PATH
+  // vacío esto no hace nada — url.pathname sigue siendo el de siempre.
+  let pathname = url.pathname;
+  if (BASE_PATH && pathname.startsWith(`${BASE_PATH}/`)) {
+    pathname = pathname.slice(BASE_PATH.length) || '/';
+  }
 
-  if (url.pathname === '/api/state' && req.method === 'GET') {
+  if (pathname === '/api/state' && req.method === 'GET') {
     fs.readFile(DATA_FILE, 'utf8', (err, content) => {
       if (err) { sendJson(res, 200, null); return; } // sin datos todavía: el cliente usa el estado inicial
       try { sendJson(res, 200, JSON.parse(content)); } catch { sendJson(res, 200, null); }
@@ -223,7 +288,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (url.pathname === '/api/state' && req.method === 'POST') {
+  if (pathname === '/api/state' && req.method === 'POST') {
     // Invitado: solo lectura. Se corta acá, antes de leer el cuerpo del
     // pedido, para no gastar ancho de banda en un guardado que de todos
     // modos no se va a aplicar.
@@ -249,9 +314,17 @@ const server = http.createServer((req, res) => {
 
   if (req.method !== 'GET') { sendJson(res, 405, { error: 'Método no permitido' }); return; }
 
-  const pathname = url.pathname === '/' ? '/index.html' : url.pathname;
-  if (!PUBLIC_FILES.has(pathname)) { sendJson(res, 404, { error: 'No encontrado' }); return; }
-  serveFile(res, path.join(__dirname, pathname));
+  const filePath = pathname === '/' ? '/index.html' : pathname;
+  if (!PUBLIC_FILES.has(filePath)) { sendJson(res, 404, { error: 'No encontrado' }); return; }
+  if (filePath === '/index.html') {
+    serveFile(res, path.join(__dirname, filePath), injectBasePathIntoHtml);
+    return;
+  }
+  if (filePath === '/manifest.json') {
+    serveFile(res, path.join(__dirname, filePath), injectBasePathIntoManifest);
+    return;
+  }
+  serveFile(res, path.join(__dirname, filePath));
 });
 
 function localAddresses() {
@@ -287,10 +360,11 @@ server.listen(PORT, () => {
   console.log('Calendario de Limpieza — Hogar Colonia');
   console.log('Servidor corriendo. Los datos se guardan en:', DATA_DIR);
   if (process.env.DATA_DIR) console.log('(DATA_DIR configurado por variable de entorno)');
+  if (BASE_PATH) console.log(`(BASE_PATH configurado por variable de entorno: ${BASE_PATH})`);
   console.log('');
-  console.log(`  En esta compu:        http://localhost:${PORT}`);
+  console.log(`  En esta compu:        http://localhost:${PORT}${BASE_PATH}/`);
   localAddresses().forEach((addr) => {
-    console.log(`  Para compartir en tu red doméstica (otra compu o celular en el mismo Wi-Fi): http://${addr}:${PORT}`);
+    console.log(`  Para compartir en tu red doméstica (otra compu o celular en el mismo Wi-Fi): http://${addr}:${PORT}${BASE_PATH}/`);
   });
   console.log('');
   console.log(`  Clave de ADMIN (acceso total, puede ver y guardar cambios): ${ACCESS_CODE}`);
